@@ -1,0 +1,55 @@
+import { CalendarDays, ChevronRight, Files, Video } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
+import type { PatientSession } from "@/features/patient/types/patient.types";
+import { formatThaiShortDate } from "@/lib/formatDate";
+
+type LatestSessionCardProps = {
+  session: PatientSession;
+};
+
+const statusLabels: Record<
+  PatientSession["status"],
+  { text: string; tone: "blue" | "green" | "yellow" | "slate" }
+> = {
+  draft: { text: "Draft", tone: "slate" },
+  ready_to_submit: { text: "พร้อมส่ง", tone: "green" },
+  waiting_doctor: { text: "รอแพทย์ตรวจ", tone: "yellow" },
+  feedback_ready: { text: "มี Feedback", tone: "green" },
+};
+
+export function LatestSessionCard({ session }: LatestSessionCardProps) {
+  const navigate = useNavigate();
+  const status = statusLabels[session.status];
+  const recordedCount = session.tasks.filter((task) => task.status === "recorded").length;
+
+  return (
+    <button className="block w-full text-left" onClick={() => navigate("/patient/status")} type="button">
+      <Card className="p-4 transition hover:border-cyan-200 hover:bg-cyan-50/40">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+              <Files className="h-5 w-5" />
+            </span>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-950">Assessment Session</p>
+              <p className="flex items-center gap-1.5 text-xs text-slate-500">
+                <CalendarDays className="h-3.5 w-3.5" />
+                {formatThaiShortDate(session.submittedAt ?? session.createdAt)}
+              </p>
+              <p className="flex items-center gap-1.5 text-xs text-slate-500">
+                <Video className="h-3.5 w-3.5" />
+                {recordedCount}/4 วิดีโอ
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge tone={status.tone}>{status.text}</Badge>
+            <ChevronRight className="h-4 w-4 text-slate-400" />
+          </div>
+        </div>
+      </Card>
+    </button>
+  );
+}
