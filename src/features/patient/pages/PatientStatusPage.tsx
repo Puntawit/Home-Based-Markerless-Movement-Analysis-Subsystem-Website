@@ -45,13 +45,19 @@ export function PatientStatusPage() {
             <p className="text-sm font-semibold text-slate-950">วิดีโอใน session นี้</p>
             {session.tasks.map((task) => {
               const movementTask = movementTaskMap[task.movementType];
+              const qualityScore = task.quality?.qualityScore;
               return (
                 <div className="flex items-center justify-between gap-3 text-sm" key={task.movementType}>
                   <span className="flex min-w-0 items-center gap-2 text-slate-700">
                     <Video className="h-4 w-4 shrink-0 text-cyan-700" />
                     <span className="truncate">{movementTask.label}</span>
                   </span>
-                  <Badge tone="green">บันทึกแล้ว</Badge>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {qualityScore ? (
+                      <Badge tone={qualityScore >= 90 ? "green" : "yellow"}>Q {qualityScore}</Badge>
+                    ) : null}
+                    <Badge tone="green">บันทึกแล้ว</Badge>
+                  </span>
                 </div>
               );
             })}
@@ -66,8 +72,8 @@ export function PatientStatusPage() {
             <StatusStep
               description={
                 mediaPipeState === "loading"
-                  ? "ระบบกำลังแกะ keypoints และโครงกระดูกจากวิดีโอทั้ง 4 ท่าด้วย MediaPipe"
-                  : "MediaPipe สกัดพิกัดโครงกระดูกครบทั้ง 4 ท่าแล้ว"
+                  ? "ระบบกำลังสกัด keypoints และ skeleton จากวิดีโอทั้ง 4 ท่าด้วย MediaPipe"
+                  : "MediaPipe สกัดพิกัด skeleton ครบทั้ง 4 ท่าแล้ว"
               }
               state={mediaPipeState}
               title="MediaPipe Pose Extraction"
@@ -75,7 +81,7 @@ export function PatientStatusPage() {
             <StatusStep
               description={
                 randomForestState === "loading"
-                  ? "โมเดลกำลังจำแนกความผิดปกติจาก features ของทั้ง session"
+                  ? "โมเดลกำลังจำแนก risk และ abnormality flags จาก clinical features ของทั้ง session"
                   : "โมเดลสร้างผลคัดกรองเบื้องต้นครบแล้ว"
               }
               state={randomForestState}
@@ -84,8 +90,8 @@ export function PatientStatusPage() {
             <StatusStep
               description={
                 reviewState === "done"
-                  ? "แพทย์ส่ง feedback สำหรับ session นี้แล้ว"
-                  : "แพทย์จะตรวจสอบผลรวมของ 4 ท่าและส่ง feedback กลับมา"
+                  ? "แพทย์ส่ง structured feedback สำหรับ session นี้แล้ว"
+                  : "แพทย์จะตรวจผลรวมของ 4 ท่าและส่ง feedback กลับมา"
               }
               state={reviewState}
               title="รอแพทย์ตรวจสอบ"
@@ -95,7 +101,7 @@ export function PatientStatusPage() {
           <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-4">
             <p className="text-sm font-semibold text-cyan-950">สถานะล่าสุด</p>
             <p className="mt-1 text-sm leading-6 text-cyan-800">
-              ผลวิเคราะห์ของ session นี้ถูกส่งเข้า dashboard ของแพทย์แล้ว คุณสามารถกลับมาตรวจ feedback ได้ภายหลัง
+              ผลวิเคราะห์ของ session นี้ถูกส่งเข้า dashboard ของแพทย์แล้ว คุณสามารถกลับมาตรวจ feedback ได้หลังแพทย์ review เสร็จ
             </p>
           </div>
 

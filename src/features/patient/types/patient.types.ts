@@ -14,10 +14,61 @@ export type PatientSessionTaskStatus = "not_started" | "recorded" | "needs_retak
 
 export type PatientViewType = "front" | "side" | "front_and_side";
 
+export type QualityCheckStatus = "passed" | "warning";
+
 export type PatientQualityGate = {
-  orientation: "passed" | "warning";
-  lighting: "passed" | "warning";
+  calibrationMethod: "a4_reference";
+  calibrationVisible: boolean;
+  bodyFraming: QualityCheckStatus;
+  lighting: QualityCheckStatus;
+  cameraAngle: QualityCheckStatus;
+  occlusion: QualityCheckStatus;
   distanceConfirmed: boolean;
+  qualityScore: number;
+  issues: string[];
+};
+
+export type PatientSymptomReportItem = {
+  bodyPartId: string;
+  bodyPartLabel: string;
+  symptomId: string;
+  symptomLabel: string;
+};
+
+export type PatientSymptomReport = {
+  items: PatientSymptomReportItem[];
+  additionalNote?: string;
+};
+
+export type DoctorFeedbackSeverity = "low" | "moderate" | "high";
+
+export type DoctorTaskFeedback = {
+  movementType: PatientMovementType;
+  severity: DoctorFeedbackSeverity;
+  title: string;
+  clinicalNote: string;
+  patientAction: string;
+};
+
+export type DoctorExercisePlan = {
+  id: string;
+  title: string;
+  frequency: string;
+  sets: string;
+  reps: string;
+  safetyNote: string;
+};
+
+export type DoctorRetakeRequest = {
+  movementType: PatientMovementType;
+  reason: string;
+  priority: DoctorFeedbackSeverity;
+};
+
+export type DoctorFollowUpPlan = {
+  nextCheckIn: string;
+  watchFor: string[];
+  escalationNote: string;
 };
 
 export type DoctorFeedback = {
@@ -25,6 +76,12 @@ export type DoctorFeedback = {
   doctorName: string;
   createdAt: string;
   summary: string;
+  patientSummary: string;
+  clinicalSummary: string;
+  taskNotes: DoctorTaskFeedback[];
+  exercisePlan: DoctorExercisePlan[];
+  retakeRequests: DoctorRetakeRequest[];
+  followUpPlan: DoctorFollowUpPlan;
   recommendations: string[];
 };
 
@@ -36,6 +93,7 @@ export type PatientSessionTask = {
   videoUrl?: string;
   fileName?: string;
   note?: string;
+  symptomReport?: PatientSymptomReport;
   quality?: PatientQualityGate;
   updatedAt?: string;
 };
@@ -56,5 +114,7 @@ export type SavePatientSessionTaskPayload = {
   videoUrl?: string;
   fileName?: string;
   note?: string;
+  symptomReport?: PatientSymptomReport;
   view: PatientViewType;
+  quality?: PatientQualityGate;
 };

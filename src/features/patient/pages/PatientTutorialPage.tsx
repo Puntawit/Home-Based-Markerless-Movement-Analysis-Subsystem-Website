@@ -22,7 +22,7 @@ export function PatientTutorialPage() {
   return (
     <MobileScreen
       backTo="/patient/home"
-      subtitle="ดูตัวอย่างท่าก่อนเริ่มเช็กกล้องและบันทึกวิดีโอ"
+      subtitle="ดูตัวอย่างท่าก่อนเริ่มตั้งกล้องและบันทึกวิดีโอ"
       title={task.label}
       footer={
         <Button

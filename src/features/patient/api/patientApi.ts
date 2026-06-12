@@ -1,5 +1,6 @@
 import {
   createEmptySessionTasks,
+  defaultQualityGate,
   demoPatient,
   latestDoctorFeedbackMock,
   patientSessionsMock,
@@ -78,11 +79,8 @@ export async function savePatientSessionTask(payload: SavePatientSessionTaskPayl
       videoUrl: payload.videoUrl,
       fileName: payload.fileName,
       note: payload.note,
-      quality: {
-        orientation: "passed" as const,
-        lighting: "passed" as const,
-        distanceConfirmed: true,
-      },
+      symptomReport: payload.symptomReport,
+      quality: payload.quality ?? defaultQualityGate,
       updatedAt: new Date().toISOString(),
     };
   });

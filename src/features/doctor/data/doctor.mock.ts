@@ -1,6 +1,13 @@
 import type { PatientMovementType } from "@/features/patient/types/patient.types";
 
 export type DoctorRiskLevel = "low" | "moderate" | "high";
+export type EventSeverity = "info" | "warning" | "critical";
+
+export type DoctorEventMarker = {
+  frame: number;
+  label: string;
+  severity: EventSeverity;
+};
 
 export type DoctorSessionTask = {
   id: string;
@@ -8,7 +15,11 @@ export type DoctorSessionTask = {
   taskLabel: string;
   riskLevel: DoctorRiskLevel;
   confidence: number;
+  qualityScore: number;
+  qualityIssues: string[];
+  recommendedAction: string;
   flags: string[];
+  eventMarkers: DoctorEventMarker[];
   metrics: {
     label: string;
     value: string;
@@ -47,6 +58,15 @@ const gaitChartData = [
   { frame: 100, knee: 16, hip: 10, symmetry: 91 },
 ];
 
+const sitChartData = [
+  { frame: 0, knee: 88, hip: 72, symmetry: 88 },
+  { frame: 20, knee: 76, hip: 64, symmetry: 84 },
+  { frame: 40, knee: 48, hip: 38, symmetry: 80 },
+  { frame: 60, knee: 52, hip: 42, symmetry: 79 },
+  { frame: 80, knee: 78, hip: 62, symmetry: 83 },
+  { frame: 100, knee: 90, hip: 74, symmetry: 86 },
+];
+
 const balanceChartData = [
   { frame: 0, knee: 8, hip: 6, symmetry: 86 },
   { frame: 20, knee: 12, hip: 11, symmetry: 82 },
@@ -54,6 +74,15 @@ const balanceChartData = [
   { frame: 60, knee: 14, hip: 24, symmetry: 74 },
   { frame: 80, knee: 10, hip: 19, symmetry: 78 },
   { frame: 100, knee: 9, hip: 12, symmetry: 83 },
+];
+
+const shoulderChartData = [
+  { frame: 0, knee: 0, hip: 4, symmetry: 92 },
+  { frame: 20, knee: 0, hip: 8, symmetry: 90 },
+  { frame: 40, knee: 0, hip: 14, symmetry: 86 },
+  { frame: 60, knee: 0, hip: 18, symmetry: 82 },
+  { frame: 80, knee: 0, hip: 16, symmetry: 84 },
+  { frame: 100, knee: 0, hip: 10, symmetry: 88 },
 ];
 
 export const doctorPatientsMock: DoctorPatient[] = [
@@ -75,11 +104,18 @@ export const doctorPatientsMock: DoctorPatient[] = [
             taskLabel: "เดินตรง 5 เมตร",
             riskLevel: "low",
             confidence: 88,
+            qualityScore: 94,
+            qualityIssues: [],
+            recommendedAction: "No retake. Continue gait monitoring next session.",
             flags: ["No major gait abnormality"],
+            eventMarkers: [
+              { frame: 42, label: "Left stance phase", severity: "info" },
+              { frame: 66, label: "Minor step width variation", severity: "info" },
+            ],
             metrics: [
               { label: "Cadence", value: "94 spm", tone: "cyan" },
               { label: "Symmetry index", value: "91%", tone: "cyan" },
-              { label: "Pose quality", value: "Good", tone: "cyan" },
+              { label: "Gait speed", value: "0.93 m/s", tone: "cyan" },
             ],
             chartData: gaitChartData,
           },
@@ -89,13 +125,20 @@ export const doctorPatientsMock: DoctorPatient[] = [
             taskLabel: "ลุก-นั่งจากเก้าอี้ 5 ครั้ง",
             riskLevel: "moderate",
             confidence: 74,
+            qualityScore: 91,
+            qualityIssues: [],
+            recommendedAction: "Prescribe slow sit-to-stand control drill.",
             flags: ["Knee valgus tendency", "Slow concentric phase"],
+            eventMarkers: [
+              { frame: 38, label: "Knee valgus peak", severity: "warning" },
+              { frame: 62, label: "Slow concentric phase", severity: "warning" },
+            ],
             metrics: [
               { label: "Completion", value: "5 reps", tone: "cyan" },
               { label: "Control", value: "Moderate", tone: "amber" },
-              { label: "Pose quality", value: "Good", tone: "cyan" },
+              { label: "Concentric phase", value: "Slow", tone: "amber" },
             ],
-            chartData: gaitChartData,
+            chartData: sitChartData,
           },
           {
             id: "task-7712-leg",
@@ -103,14 +146,22 @@ export const doctorPatientsMock: DoctorPatient[] = [
             taskLabel: "ยืนขาเดียว",
             riskLevel: "moderate",
             confidence: 76,
+            qualityScore: 78,
+            qualityIssues: ["Left foot occluded near the end of the clip"],
+            recommendedAction: "Request retake and prescribe supported balance drill.",
             flags: [
               "Pelvic Drop / Possible Trendelenburg Sign",
               "Center of mass drift detected",
             ],
+            eventMarkers: [
+              { frame: 46, label: "Pelvic drop peak", severity: "warning" },
+              { frame: 72, label: "Center of mass drift", severity: "warning" },
+              { frame: 88, label: "Foot occlusion", severity: "critical" },
+            ],
             metrics: [
               { label: "Balance score", value: "68/100", tone: "amber" },
               { label: "Symmetry index", value: "78%", tone: "amber" },
-              { label: "Pose quality", value: "Good", tone: "cyan" },
+              { label: "Pelvic drop", value: "12.1 deg", tone: "rose" },
             ],
             chartData: balanceChartData,
           },
@@ -120,13 +171,20 @@ export const doctorPatientsMock: DoctorPatient[] = [
             taskLabel: "ยกแขนขึ้นเหนือหัว",
             riskLevel: "low",
             confidence: 83,
+            qualityScore: 90,
+            qualityIssues: [],
+            recommendedAction: "Coach trunk control during shoulder flexion.",
             flags: ["Mild trunk compensation"],
+            eventMarkers: [
+              { frame: 58, label: "Max shoulder flexion", severity: "info" },
+              { frame: 76, label: "Mild trunk compensation", severity: "warning" },
+            ],
             metrics: [
               { label: "ROM", value: "151 deg", tone: "cyan" },
               { label: "Compensation", value: "Mild", tone: "amber" },
-              { label: "Pose quality", value: "Good", tone: "cyan" },
+              { label: "Smoothness", value: "Good", tone: "cyan" },
             ],
-            chartData: gaitChartData,
+            chartData: shoulderChartData,
           },
         ],
       },
@@ -150,13 +208,20 @@ export const doctorPatientsMock: DoctorPatient[] = [
             taskLabel: "ยกแขนขึ้นเหนือหัว",
             riskLevel: "high",
             confidence: 81,
+            qualityScore: 86,
+            qualityIssues: ["Trunk partially leaves frame at max flexion"],
+            recommendedAction: "Review manually before sending exercise plan.",
             flags: ["Trunk Compensation Detected", "Limited shoulder flexion range"],
+            eventMarkers: [
+              { frame: 52, label: "Limited ROM", severity: "critical" },
+              { frame: 70, label: "Trunk compensation", severity: "critical" },
+            ],
             metrics: [
               { label: "ROM", value: "122 deg", tone: "rose" },
               { label: "Compensation", value: "High", tone: "rose" },
               { label: "Pose quality", value: "Fair", tone: "amber" },
             ],
-            chartData: balanceChartData,
+            chartData: shoulderChartData,
           },
         ],
       },

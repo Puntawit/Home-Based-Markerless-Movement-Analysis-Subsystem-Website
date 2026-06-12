@@ -64,7 +64,7 @@ export function PatientHomePage() {
         <div className="rounded-lg border border-cyan-100 bg-cyan-50 px-4 py-3">
           <p className="text-sm font-semibold text-cyan-950">Assessment Session ปัจจุบัน</p>
           <p className="mt-1 text-xs leading-5 text-cyan-800">
-            บันทึกให้ครบทั้ง 4 ท่าใน session เดียวก่อน แล้วค่อยส่งให้แพทย์ตรวจ
+            บันทึกให้ครบทั้ง 4 ท่าใน session เดียว ระบบจะเก็บเป็น draft ก่อน แล้วค่อยส่งให้แพทย์ตรวจเมื่อครบทั้งหมด
           </p>
         </div>
       </div>
@@ -118,9 +118,12 @@ export function PatientHomePage() {
                           {recorded ? "บันทึกแล้ว" : "ยังไม่เริ่ม"}
                         </Badge>
                         <Badge tone="cyan">{task.durationSeconds} วินาที</Badge>
-                        {sessionTask.fileName ? (
-                          <Badge tone="blue">{sessionTask.fileName}</Badge>
+                        {sessionTask.quality ? (
+                          <Badge tone={sessionTask.quality.qualityScore >= 90 ? "green" : "yellow"}>
+                            Quality {sessionTask.quality.qualityScore}
+                          </Badge>
                         ) : null}
+                        {sessionTask.fileName ? <Badge tone="blue">{sessionTask.fileName}</Badge> : null}
                       </div>
                     </div>
                     {recorded ? (

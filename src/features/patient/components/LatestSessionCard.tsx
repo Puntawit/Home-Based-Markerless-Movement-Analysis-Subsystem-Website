@@ -23,6 +23,13 @@ export function LatestSessionCard({ session }: LatestSessionCardProps) {
   const navigate = useNavigate();
   const status = statusLabels[session.status];
   const recordedCount = session.tasks.filter((task) => task.status === "recorded").length;
+  const qualityScores = session.tasks
+    .map((task) => task.quality?.qualityScore)
+    .filter((score): score is number => typeof score === "number");
+  const averageQuality =
+    qualityScores.length > 0
+      ? Math.round(qualityScores.reduce((total, score) => total + score, 0) / qualityScores.length)
+      : undefined;
 
   return (
     <button className="block w-full text-left" onClick={() => navigate("/patient/status")} type="button">
@@ -44,9 +51,14 @@ export function LatestSessionCard({ session }: LatestSessionCardProps) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge tone={status.tone}>{status.text}</Badge>
-            <ChevronRight className="h-4 w-4 text-slate-400" />
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <Badge tone={status.tone}>{status.text}</Badge>
+              <ChevronRight className="h-4 w-4 text-slate-400" />
+            </div>
+            {averageQuality ? (
+              <Badge tone={averageQuality >= 90 ? "green" : "yellow"}>Quality {averageQuality}</Badge>
+            ) : null}
           </div>
         </div>
       </Card>
