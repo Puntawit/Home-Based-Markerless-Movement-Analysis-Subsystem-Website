@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
   Camera,
   CheckCircle2,
   Crosshair,
   FileCheck2,
   Maximize2,
+  PlayCircle,
   RotateCcw,
   Save,
   Smartphone,
@@ -31,21 +33,40 @@ type CapturePhase = "preflight" | "capture" | "review";
 
 const allowedExtensions = [".mp4", ".mov", ".webm"];
 const allowedMimeTypes = ["video/mp4", "video/quicktime", "video/webm"];
+const preferredRecordingMimeTypes = ["video/webm;codecs=vp8", "video/webm", "video/mp4"];
+
+function getSupportedRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  return preferredRecordingMimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
+}
+
+function stopMediaStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
 
 export function PatientRecordPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const task = getMovementTask(searchParams.get("task"));
+  const liveVideoRef = useRef<HTMLVideoElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const [phase, setPhase] = useState<CapturePhase>("preflight");
   const [referenceConfirmed, setReferenceConfirmed] = useState(false);
   const [fullBodyConfirmed, setFullBodyConfirmed] = useState(false);
   const [distanceConfirmed, setDistanceConfirmed] = useState(false);
+  const [lightingConfirmed, setLightingConfirmed] = useState(false);
   const [safetyConfirmed, setSafetyConfirmed] = useState(!task.safetyNote);
   const [countdown, setCountdown] = useState(5);
-  const [captureProgress, setCaptureProgress] = useState(0);
+  const [captureElapsedSeconds, setCaptureElapsedSeconds] = useState(0);
   const [saveProgress, setSaveProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [cameraError, setCameraError] = useState("");
   const [note, setNote] = useState("");
   const [symptomSelections, setSymptomSelections] = useState<Record<string, string>>({});
   const [symptomAdditionalNote, setSymptomAdditionalNote] = useState("");
@@ -61,20 +82,21 @@ export function PatientRecordPage() {
       !referenceConfirmed ? "ยังไม่ยืนยันว่าเห็นกระดาษ A4 อ้างอิง" : "",
       !fullBodyConfirmed ? "ยังไม่ยืนยันว่าเห็นร่างกายครบในกรอบ" : "",
       !distanceConfirmed ? "ยังไม่ยืนยันระยะกล้อง" : "",
+      !lightingConfirmed ? "ยังไม่ยืนยันว่าแสงสว่างพอ" : "",
     ].filter(Boolean);
 
     return {
       calibrationMethod: "a4_reference",
       calibrationVisible: referenceConfirmed,
       bodyFraming: fullBodyConfirmed ? "passed" : "warning",
-      lighting: "passed",
+      lighting: lightingConfirmed ? "passed" : "warning",
       cameraAngle: "passed",
       occlusion: "passed",
       distanceConfirmed,
       qualityScore: issues.length === 0 ? 94 : 78,
       issues,
     };
-  }, [distanceConfirmed, fullBodyConfirmed, referenceConfirmed]);
+  }, [distanceConfirmed, fullBodyConfirmed, lightingConfirmed, referenceConfirmed]);
 
   const symptomReport = useMemo<PatientSymptomReport>(() => {
     return {
@@ -101,9 +123,23 @@ export function PatientRecordPage() {
   }, [previewUrl]);
 
   useEffect(() => {
+    if (liveVideoRef.current) {
+      liveVideoRef.current.srcObject = cameraStream;
+    }
+  }, [cameraStream, phase]);
+
+  useEffect(() => {
+    return () => {
+      stopMediaStream(streamRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    stopCameraStream();
     setReferenceConfirmed(false);
     setFullBodyConfirmed(false);
     setDistanceConfirmed(false);
+    setLightingConfirmed(false);
     setSafetyConfirmed(!task.safetyNote);
     setSelectedFile(null);
     setNote("");
@@ -114,28 +150,202 @@ export function PatientRecordPage() {
     );
     setSymptomAdditionalNote("");
     setError("");
+    setCameraError("");
     setPhase("preflight");
   }, [task.id, task.safetyNote, task.symptomQuestions]);
 
   useEffect(() => {
+    if (phase !== "preflight") return undefined;
+
+    let cancelled = false;
+
+    async function startCameraPreview() {
+      setCountdown(5);
+      setCaptureElapsedSeconds(0);
+      setCameraReady(false);
+      setIsRecording(false);
+      setCameraError("");
+      setError("");
+      setSelectedFile(null);
+      recordedChunksRef.current = [];
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("This browser cannot open the webcam. Please upload a video instead.");
+        setPhase("review");
+        return;
+      }
+
+      if (typeof MediaRecorder === "undefined") {
+        setCameraError("This browser cannot record webcam video. Please upload a video instead.");
+        setPhase("review");
+        return;
+      }
+
+      if (streamRef.current) {
+        setCameraStream(streamRef.current);
+        setCameraReady(true);
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: "user",
+            height: { ideal: 1280 },
+            width: { ideal: 720 },
+          },
+        });
+
+        if (cancelled) {
+          stopMediaStream(stream);
+          return;
+        }
+
+        streamRef.current = stream;
+        setCameraStream(stream);
+        setCameraReady(true);
+      } catch {
+        if (cancelled) return;
+        setCameraError("Camera permission was blocked or no webcam was found. Please upload a video instead.");
+        setPhase("review");
+      }
+    }
+
+    void startCameraPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [phase]);
+
+  useEffect(() => {
     if (phase !== "capture") return undefined;
 
-    setCountdown(5);
-    setCaptureProgress(0);
-    const timer = window.setInterval(() => {
-      setCountdown((value) => Math.max(0, value - 1));
-      setCaptureProgress((value) => {
-        const nextValue = Math.min(100, value + 10);
-        if (nextValue === 100) {
-          window.clearInterval(timer);
-          window.setTimeout(() => setPhase("review"), 300);
-        }
-        return nextValue;
-      });
-    }, 500);
+    let cancelled = false;
+    let countdownTimer: number | undefined;
+    let progressTimer: number | undefined;
+    let stopRecordingTimer: number | undefined;
 
-    return () => window.clearInterval(timer);
-  }, [phase]);
+    async function startWebcamCapture() {
+      setCountdown(5);
+      setCaptureElapsedSeconds(0);
+      setIsRecording(false);
+      setCameraError("");
+      setError("");
+      recordedChunksRef.current = [];
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("This browser cannot open the webcam. Please upload a video instead.");
+        setPhase("review");
+        return;
+      }
+
+      if (typeof MediaRecorder === "undefined") {
+        setCameraError("This browser cannot record webcam video. Please upload a video instead.");
+        setPhase("review");
+        return;
+      }
+
+      try {
+        const stream =
+          streamRef.current ??
+          (await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: "user",
+              height: { ideal: 1280 },
+              width: { ideal: 720 },
+            },
+          }));
+
+        if (cancelled) {
+          if (stream !== streamRef.current) stopMediaStream(stream);
+          return;
+        }
+
+        const recordingMimeType = getSupportedRecordingMimeType();
+        const recorder = recordingMimeType
+          ? new MediaRecorder(stream, { mimeType: recordingMimeType })
+          : new MediaRecorder(stream);
+
+        streamRef.current = stream;
+        mediaRecorderRef.current = recorder;
+        setCameraStream(stream);
+        setCameraReady(true);
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordedChunksRef.current.push(event.data);
+          }
+        };
+
+        recorder.onstop = () => {
+          if (progressTimer) window.clearInterval(progressTimer);
+          if (cancelled) return;
+
+          const mimeType = recorder.mimeType || recordingMimeType || "video/webm";
+          const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+          const recordedBlob = new Blob(recordedChunksRef.current, { type: mimeType });
+          const recordedFile = new File(
+            [recordedBlob],
+            `${task.id}-webcam-${Date.now()}.${extension}`,
+            { type: mimeType },
+          );
+
+          setCaptureElapsedSeconds(task.durationSeconds);
+          setIsRecording(false);
+          setSelectedFile(recordedFile);
+          stopCameraStream();
+          setPhase("review");
+        };
+
+        let nextCountdown = 5;
+        countdownTimer = window.setInterval(() => {
+          nextCountdown -= 1;
+          setCountdown(Math.max(0, nextCountdown));
+
+          if (nextCountdown > 0) return;
+
+          if (countdownTimer) window.clearInterval(countdownTimer);
+          const startedAt = Date.now();
+
+          recorder.start();
+          setIsRecording(true);
+
+          progressTimer = window.setInterval(() => {
+            const elapsedMs = Date.now() - startedAt;
+            setCaptureElapsedSeconds(Math.min(task.durationSeconds, Math.floor(elapsedMs / 1000)));
+          }, 200);
+
+          stopRecordingTimer = window.setTimeout(() => {
+            if (recorder.state !== "inactive") {
+              recorder.stop();
+            }
+          }, task.durationSeconds * 1000);
+        }, 1000);
+      } catch {
+        if (cancelled) return;
+        setCameraError("Camera permission was blocked or no webcam was found. Please upload a video instead.");
+        setPhase("review");
+      }
+    }
+
+    void startWebcamCapture();
+
+    return () => {
+      cancelled = true;
+      if (countdownTimer) window.clearInterval(countdownTimer);
+      if (progressTimer) window.clearInterval(progressTimer);
+      if (stopRecordingTimer) window.clearTimeout(stopRecordingTimer);
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
+      stopCameraStream();
+      setIsRecording(false);
+    };
+  }, [phase, task.durationSeconds, task.id]);
 
   useEffect(() => {
     if (saveProgress === 0 || saveProgress >= 100) return undefined;
@@ -156,11 +366,23 @@ export function PatientRecordPage() {
   });
 
   const preflightReady =
-    referenceConfirmed && fullBodyConfirmed && distanceConfirmed && safetyConfirmed;
+    cameraReady && referenceConfirmed && fullBodyConfirmed && distanceConfirmed && lightingConfirmed && safetyConfirmed;
   const currentStep = phase === "preflight" ? 3 : phase === "capture" ? 4 : 5;
+  const canSaveTask = Boolean(selectedFile) && !saveTaskMutation.isPending;
+  const captureProgress = Math.min(100, (captureElapsedSeconds / task.durationSeconds) * 100);
+  const captureTimeLabel = `${captureElapsedSeconds} / ${task.durationSeconds} วินาที`;
+
+  function stopCameraStream() {
+    stopMediaStream(streamRef.current);
+    streamRef.current = null;
+    mediaRecorderRef.current = null;
+    setCameraStream(null);
+    setCameraReady(false);
+  }
 
   function handleFileChange(file: File | null) {
     setError("");
+    setCameraError("");
 
     if (!file) {
       setSelectedFile(null);
@@ -181,16 +403,31 @@ export function PatientRecordPage() {
   }
 
   function handleSaveTask() {
+    if (!selectedFile) {
+      setError("Record with webcam or upload a video before saving this movement.");
+      return;
+    }
+
     setSaveProgress(12);
     saveTaskMutation.mutate({
       movementType: task.id,
       note,
       videoUrl: previewUrl,
-      fileName: selectedFile?.name ?? `${task.id}-capture.webm`,
+      fileName: selectedFile.name,
       view: task.view,
       symptomReport,
       quality: qualityGate,
     });
+  }
+
+  function handleRetake() {
+    stopCameraStream();
+    setSelectedFile(null);
+    setCaptureElapsedSeconds(0);
+    setCountdown(5);
+    setCameraError("");
+    setError("");
+    setPhase("preflight");
   }
 
   return (
@@ -209,7 +446,11 @@ export function PatientRecordPage() {
         <div className="flex items-center justify-between text-sm">
           <span className="font-semibold text-slate-700">ขั้นตอนที่ {currentStep}/5</span>
           <span className="text-slate-500">
-            {phase === "preflight" ? "A4 reference" : phase === "capture" ? "Capture" : "Save Draft"}
+            {phase === "preflight"
+              ? "A4 reference"
+              : phase === "capture"
+                ? "Capture"
+                : "Save Draft"}
           </span>
         </div>
         <TutorialProgress currentStep={currentStep} totalSteps={5} />
@@ -219,10 +460,21 @@ export function PatientRecordPage() {
         <>
           <section className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
             <div className="aspect-[9/12] bg-[linear-gradient(180deg,#1e293b,#020617)]">
-              <Silhouette kind={task.silhouette} />
+              {cameraStream ? (
+                <video
+                  ref={liveVideoRef}
+                  autoPlay
+                  className="h-full w-full object-cover"
+                  muted
+                  playsInline
+                />
+              ) : (
+                <Silhouette kind={task.silhouette} />
+              )}
+              <div className="absolute inset-0 bg-slate-950/10" />
               <div className="absolute inset-x-10 top-12 bottom-20 rounded-[32px] border-2 border-dashed border-cyan-300/70" />
               <div className="absolute left-4 top-4 rounded-full bg-black/40 px-3 py-1 text-xs font-medium text-white">
-                Live preview
+                {cameraReady ? "Camera preview" : "Opening camera..."}
               </div>
               <div className="absolute bottom-5 left-1/2 h-16 w-24 -translate-x-1/2 rounded-md border-2 border-emerald-300 bg-emerald-400/15">
                 <span className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-300" />
@@ -232,6 +484,13 @@ export function PatientRecordPage() {
               </div>
             </div>
           </section>
+
+          {cameraError ? (
+            <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <AlertCircle className="h-5 w-5 text-amber-700" />
+              <p className="text-sm leading-6 text-amber-900">{cameraError}</p>
+            </div>
+          ) : null}
 
           <section className="space-y-3 rounded-lg border border-cyan-100 bg-cyan-50 p-4">
             <div className="flex items-start gap-3">
@@ -288,6 +547,12 @@ export function PatientRecordPage() {
                 <span className="text-xs leading-5 text-slate-500">{task.distance}</span>
               </span>
             </label>
+            <ConfirmItem
+              checked={lightingConfirmed}
+              icon={<SunMedium className="h-5 w-5" />}
+              label="แสงสว่างพอ เห็นร่างกายและ A4 ชัด"
+              onChange={setLightingConfirmed}
+            />
             {task.safetyNote ? (
               <label className="flex cursor-pointer gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <input
@@ -317,7 +582,18 @@ export function PatientRecordPage() {
         <>
           <section className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
             <div className="aspect-[9/12] bg-[linear-gradient(180deg,#0f172a,#111827)]">
-              <Silhouette kind={task.silhouette} />
+              {cameraStream ? (
+                <video
+                  ref={liveVideoRef}
+                  autoPlay
+                  className="h-full w-full object-cover"
+                  muted
+                  playsInline
+                />
+              ) : (
+                <Silhouette kind={task.silhouette} />
+              )}
+              <div className="absolute inset-0 bg-slate-950/20" />
               <div className="absolute inset-x-10 top-12 bottom-20 rounded-[32px] border-2 border-dashed border-cyan-300/70" />
               <div className="absolute left-0 right-0 top-6 text-center">
                 <p className="text-sm font-medium text-white/70">
@@ -330,10 +606,18 @@ export function PatientRecordPage() {
                   className="text-white"
                   label={`${task.durationSeconds} วินาที`}
                   value={captureProgress}
+                  valueLabel={captureTimeLabel}
                 />
               </div>
             </div>
           </section>
+
+          {cameraError ? (
+            <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <AlertCircle className="h-5 w-5 text-amber-700" />
+              <p className="text-sm leading-6 text-amber-900">{cameraError}</p>
+            </div>
+          ) : null}
 
           <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
             <Timer className="h-5 w-5 text-blue-700" />
@@ -356,6 +640,23 @@ export function PatientRecordPage() {
                 </p>
               </div>
             </div>
+
+            <RecordedVideoPreview
+              fileName={selectedFile?.name}
+              helperText={
+                selectedFile
+                  ? "Check that your full body and the A4 reference are visible before saving."
+                  : "Record with the webcam or upload an existing clip to preview it here."
+              }
+              onRetake={handleRetake}
+              videoUrl={previewUrl}
+            />
+
+            <UploadVideoBox
+              error={error || cameraError}
+              fileName={selectedFile?.name}
+              onChange={handleFileChange}
+            />
 
             <section className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-start justify-between gap-3">
@@ -433,12 +734,6 @@ export function PatientRecordPage() {
               </label>
             </section>
 
-            <UploadVideoBox
-              error={error}
-              fileName={selectedFile?.name}
-              onChange={handleFileChange}
-              videoUrl={previewUrl}
-            />
           </section>
 
           <label className="block space-y-1.5">
@@ -455,25 +750,16 @@ export function PatientRecordPage() {
             <ProgressBar label="บันทึกลง session draft" value={saveProgress} />
           ) : null}
 
-          <div className="grid grid-cols-[auto_1fr] gap-3">
-            <Button
-              aria-label="ถ่ายใหม่"
-              icon={<RotateCcw className="h-4 w-4" />}
-              onClick={() => setPhase("preflight")}
-              size="icon"
-              variant="outline"
-            />
-            <Button
-              className="h-12 bg-emerald-700 hover:bg-emerald-800 focus-visible:ring-emerald-600"
-              disabled={saveTaskMutation.isPending}
-              icon={<Save className="h-4 w-4" />}
-              onClick={handleSaveTask}
-              size="lg"
-              variant="secondary"
-            >
-              {saveTaskMutation.isPending ? "กำลังบันทึก..." : "บันทึกท่านี้ใน Session"}
-            </Button>
-          </div>
+          <Button
+            className="h-12 w-full bg-emerald-700 hover:bg-emerald-800 focus-visible:ring-emerald-600"
+            disabled={!canSaveTask}
+            icon={<Save className="h-4 w-4" />}
+            onClick={handleSaveTask}
+            size="lg"
+            variant="secondary"
+          >
+            {saveTaskMutation.isPending ? "กำลังบันทึก..." : "บันทึกท่านี้ใน Session"}
+          </Button>
         </>
       ) : null}
     </MobileScreen>
@@ -534,6 +820,65 @@ function QualityLine({ label, passed }: { label: string; passed: boolean }) {
       <span className="text-slate-600">{label}</span>
       <Badge tone={passed ? "green" : "yellow"}>{passed ? "Passed" : "Warning"}</Badge>
     </div>
+  );
+}
+
+function RecordedVideoPreview({
+  fileName,
+  helperText,
+  onRetake,
+  videoUrl,
+}: {
+  fileName?: string;
+  helperText: string;
+  onRetake: () => void;
+  videoUrl?: string;
+}) {
+  return (
+    <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Recorded video</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{helperText}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            aria-label="ถ่ายใหม่"
+            className="h-8 px-2 text-xs"
+            icon={<RotateCcw className="h-3.5 w-3.5" />}
+            onClick={onRetake}
+            size="sm"
+            variant="outline"
+          >
+            ถ่ายใหม่
+          </Button>
+          <Badge tone={videoUrl ? "green" : "slate"}>{videoUrl ? "Ready" : "Waiting"}</Badge>
+        </div>
+      </div>
+
+      {videoUrl ? (
+        <video
+          className="aspect-video w-full rounded-lg border border-slate-200 bg-black object-contain"
+          controls
+          playsInline
+          src={videoUrl}
+        />
+      ) : (
+        <div className="flex aspect-video w-full flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-center">
+          <PlayCircle className="h-10 w-10 text-slate-400" />
+          <p className="mt-2 text-sm font-semibold text-slate-700">No recorded clip yet</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Finish recording or upload a video to see playback here.
+          </p>
+        </div>
+      )}
+
+      {fileName ? (
+        <p className="truncate rounded-md bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+          {fileName}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
