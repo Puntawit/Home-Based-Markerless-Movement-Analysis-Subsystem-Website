@@ -8,7 +8,11 @@ export type PatientSessionStatus =
   | "draft"
   | "ready_to_submit"
   | "waiting_doctor"
-  | "feedback_ready";
+  | "queued_analysis"
+  | "processing_analysis"
+  | "pending_doctor_review"
+  | "feedback_ready"
+  | "analysis_failed";
 
 export type PatientSessionTaskStatus = "not_started" | "recorded" | "needs_retake";
 
@@ -87,9 +91,11 @@ export type DoctorFeedback = {
 
 export type PatientSessionTask = {
   id: string;
+  taskId?: string;
   movementType: PatientMovementType;
   status: PatientSessionTaskStatus;
   view: PatientViewType;
+  fileId?: string;
   videoUrl?: string;
   fileName?: string;
   note?: string;
@@ -100,6 +106,7 @@ export type PatientSessionTask = {
 
 export type PatientSession = {
   id: string;
+  sessionId?: string;
   patientName: string;
   patientId: string;
   status: PatientSessionStatus;
@@ -111,6 +118,8 @@ export type PatientSession = {
 
 export type SavePatientSessionTaskPayload = {
   movementType: PatientMovementType;
+  file?: File;
+  fileId?: string;
   videoUrl?: string;
   fileName?: string;
   note?: string;

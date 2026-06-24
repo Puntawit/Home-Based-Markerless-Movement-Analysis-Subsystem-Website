@@ -1,133 +1,128 @@
-import {
-  createEmptySessionTasks,
-  defaultQualityGate,
-  demoPatient,
-  latestDoctorFeedbackMock,
-  patientSessionsMock,
-} from "@/features/patient/data/patient.mock";
 import type {
   DoctorFeedback,
   PatientSession,
-  PatientSessionTask,
+  PatientSessionStatus,
   SavePatientSessionTaskPayload,
 } from "@/features/patient/types/patient.types";
+import { backendRequest, setBackendAuthToken } from "@/lib/backendApi";
 
-let submittedSessions: PatientSession[] = [...patientSessionsMock];
-let draftSession: PatientSession = createDraftSession();
+type MockLoginResponse = {
+  accessToken: string;
+  user: {
+    id: string;
+    role: string;
+    displayName: string;
+  };
+};
 
-function delay(ms = 350) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
+type UploadResponse = {
+  fileId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
 
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function createDraftSession(): PatientSession {
+function normalizeSession(session: PatientSession | null): PatientSession | null {
+  if (!session) return null;
   return {
-    id: `draft-${demoPatient.id}`,
-    patientName: demoPatient.displayName,
-    patientId: demoPatient.id,
-    status: "draft",
-    createdAt: new Date().toISOString(),
-    tasks: createEmptySessionTasks(),
+    ...session,
+    id: session.id ?? session.sessionId,
+    tasks: session.tasks.map((task) => ({
+      ...task,
+      id: task.id ?? task.taskId ?? task.movementType,
+    })),
   };
 }
 
-function sortByNewest(items: PatientSession[]) {
-  return [...items].sort(
-    (a, b) => new Date(b.submittedAt ?? b.createdAt).getTime() - new Date(a.submittedAt ?? a.createdAt).getTime(),
-  );
-}
-
-function getCompletedTaskCount(tasks: PatientSessionTask[]) {
-  return tasks.filter((task) => task.status === "recorded" && Boolean(task.fileName)).length;
-}
-
-function refreshDraftStatus() {
-  draftSession.status = getCompletedTaskCount(draftSession.tasks) === draftSession.tasks.length
-    ? "ready_to_submit"
-    : "draft";
+function normalizeFeedback(feedback: DoctorFeedback | null): DoctorFeedback | null {
+  if (!feedback) return null;
+  return {
+    ...feedback,
+    id: feedback.id ?? (feedback as DoctorFeedback & { feedbackId?: string }).feedbackId ?? "feedback-latest",
+    exercisePlan: feedback.exercisePlan ?? [],
+    retakeRequests: feedback.retakeRequests ?? [],
+    taskNotes: feedback.taskNotes ?? [],
+    recommendations: feedback.recommendations ?? [],
+    followUpPlan: feedback.followUpPlan ?? {
+      nextCheckIn: "Follow up in the next scheduled review.",
+      watchFor: [],
+      escalationNote: "Contact the clinic if symptoms worsen.",
+    },
+  };
 }
 
 export async function mockLogin() {
-  await delay(300);
-  return { patientName: demoPatient.displayName, patientId: demoPatient.id };
+  const result = await backendRequest<MockLoginResponse>("/auth/mock-login", {
+    body: JSON.stringify({ role: "patient" }),
+    method: "POST",
+  });
+  setBackendAuthToken(result.accessToken);
+  return { patientName: result.user.displayName, patientId: result.user.id };
+}
+
+export async function uploadPatientVideo(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return backendRequest<UploadResponse>("/uploads/video", {
+    body: formData,
+    method: "POST",
+  });
 }
 
 export async function getPatientDraftSession() {
-  await delay(250);
-  refreshDraftStatus();
-  return clone(draftSession);
+  const session = await backendRequest<PatientSession>("/patient/sessions/draft");
+  return normalizeSession(session)!;
 }
 
 export async function getLatestPatientSession() {
-  await delay(250);
-  return clone(sortByNewest(submittedSessions)[0]);
+  const session = await backendRequest<PatientSession | null>("/patient/sessions/latest");
+  return normalizeSession(session);
 }
 
 export async function savePatientSessionTask(payload: SavePatientSessionTaskPayload) {
-  await delay(550);
+  let fileId = payload.fileId;
+  if (!fileId && payload.file) {
+    const upload = await uploadPatientVideo(payload.file);
+    fileId = upload.fileId;
+  }
 
-  const nextTasks = draftSession.tasks.map((task) => {
-    if (task.movementType !== payload.movementType) return task;
+  if (!fileId) {
+    throw new Error("A video file is required before saving this movement task.");
+  }
 
-    return {
-      ...task,
-      status: "recorded" as const,
-      view: payload.view,
-      videoUrl: payload.videoUrl,
-      fileName: payload.fileName,
-      note: payload.note,
-      symptomReport: payload.symptomReport,
-      quality: payload.quality ?? defaultQualityGate,
-      updatedAt: new Date().toISOString(),
-    };
-  });
-
-  draftSession = {
-    ...draftSession,
-    tasks: nextTasks,
-  };
-  refreshDraftStatus();
-
-  return clone(draftSession);
+  const session = await backendRequest<PatientSession>(
+    `/patient/sessions/draft/tasks/${payload.movementType}`,
+    {
+      body: JSON.stringify({
+        fileId,
+        note: payload.note,
+        quality: payload.quality,
+        symptomReport: payload.symptomReport,
+        view: payload.view,
+      }),
+      method: "POST",
+    },
+  );
+  return normalizeSession(session)!;
 }
 
 export async function submitPatientSession() {
-  await delay(800);
-  refreshDraftStatus();
+  const session = await backendRequest<PatientSession>("/patient/sessions/submit", {
+    method: "POST",
+  });
+  return normalizeSession(session)!;
+}
 
-  if (draftSession.status !== "ready_to_submit") {
-    throw new Error("Please complete all 4 movement videos before submitting.");
+export async function getPatientSessionStatus(sessionId: string): Promise<PatientSessionStatus> {
+  const session = await backendRequest<PatientSession | null>("/patient/sessions/latest");
+  const normalized = normalizeSession(session);
+  if (!normalized || normalized.id !== sessionId) {
+    return "queued_analysis";
   }
-
-  const now = new Date().toISOString();
-  const submittedSession: PatientSession = {
-    ...draftSession,
-    id: `pat-sess-${Date.now()}`,
-    status: "waiting_doctor",
-    submittedAt: now,
-    tasks: draftSession.tasks.map((task) => ({
-      ...task,
-      id: `task-${Date.now()}-${task.movementType}`,
-    })),
-  };
-
-  submittedSessions = [submittedSession, ...submittedSessions];
-  draftSession = createDraftSession();
-
-  return clone(submittedSession);
+  return normalized.status;
 }
 
-export async function getPatientSessionStatus(sessionId: string) {
-  await delay(250);
-  const session = submittedSessions.find((item) => item.id === sessionId);
-  return clone(session?.status ?? "waiting_doctor");
-}
-
-export async function getLatestDoctorFeedback(): Promise<DoctorFeedback> {
-  await delay(250);
-  const sessionFeedback = sortByNewest(submittedSessions).find((item) => item.feedback)?.feedback;
-  return clone(sessionFeedback ?? latestDoctorFeedbackMock);
+export async function getLatestDoctorFeedback(): Promise<DoctorFeedback | null> {
+  const feedback = await backendRequest<DoctorFeedback | null>("/patient/feedback/latest");
+  return normalizeFeedback(feedback);
 }

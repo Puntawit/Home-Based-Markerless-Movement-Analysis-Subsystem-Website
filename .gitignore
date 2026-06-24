@@ -10,3 +10,6 @@ pnpm-debug.log*
 vite.log
 vite.err
 *.tsbuildinfo
+__pycache__/
+.venv/
+backend/uploads/

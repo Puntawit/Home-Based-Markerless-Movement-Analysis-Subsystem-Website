@@ -27,8 +27,10 @@ export function PatientStatusPage() {
 
   const session = sessionQuery.data;
   const status = statusQuery.data ?? session?.status ?? "waiting_doctor";
-  const mediaPipeState = status === "waiting_doctor" ? "loading" : "done";
-  const randomForestState = status === "waiting_doctor" ? "loading" : "done";
+  const mediaPipeState =
+    status === "queued_analysis" || status === "processing_analysis" ? "loading" : "done";
+  const randomForestState =
+    status === "queued_analysis" || status === "processing_analysis" ? "loading" : "done";
   const reviewState = status === "feedback_ready" ? "done" : "pending";
 
   return (

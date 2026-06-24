@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -33,6 +34,7 @@ import {
   type DoctorRiskLevel,
   type EventSeverity,
 } from "@/features/doctor/data/doctor.mock";
+import { getDoctorPatients, submitDoctorFeedback } from "@/features/doctor/api/doctorApi";
 import { formatThaiShortDate } from "@/lib/formatDate";
 import { cn } from "@/lib/cn";
 
@@ -55,6 +57,11 @@ const eventTone: Record<EventSeverity, string> = {
 };
 
 export function DoctorDashboardPage() {
+  const queryClient = useQueryClient();
+  const doctorQuery = useQuery({
+    queryKey: ["doctor", "sessions"],
+    queryFn: getDoctorPatients,
+  });
   const [query, setQuery] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState(doctorPatientsMock[0].id);
   const [selectedSessionId, setSelectedSessionId] = useState(doctorPatientsMock[0].sessions[0].id);
@@ -66,15 +73,22 @@ export function DoctorDashboardPage() {
   const [patientSummary, setPatientSummary] = useState(
     "โดยรวมทำได้ดี แต่ควรฝึกการทรงตัวใกล้เก้าอี้ และถ่ายท่ายืนขาเดียวใหม่ให้เห็นเท้าชัดเจน",
   );
+  const doctorPatients = doctorQuery.data?.length ? doctorQuery.data : doctorPatientsMock;
+  const feedbackMutation = useMutation({
+    mutationFn: submitDoctorFeedback,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["doctor", "sessions"] });
+    },
+  });
 
   const filteredPatients = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return doctorPatientsMock;
-    return doctorPatientsMock.filter((patient) => patient.id.toLowerCase().includes(normalized));
-  }, [query]);
+    if (!normalized) return doctorPatients;
+    return doctorPatients.filter((patient) => patient.id.toLowerCase().includes(normalized));
+  }, [doctorPatients, query]);
 
   const selectedPatient =
-    doctorPatientsMock.find((patient) => patient.id === selectedPatientId) ?? doctorPatientsMock[0];
+    doctorPatients.find((patient) => patient.id === selectedPatientId) ?? doctorPatients[0];
   const selectedSession =
     selectedPatient.sessions.find((session) => session.id === selectedSessionId) ??
     selectedPatient.sessions[0];
@@ -87,9 +101,10 @@ export function DoctorDashboardPage() {
     selectedSession.tasks.reduce((total, task) => total + task.qualityScore, 0) /
       selectedSession.tasks.length,
   );
+  const selectedTaskVideoUrl = (selectedTask as typeof selectedTask & { videoUrl?: string }).videoUrl;
 
   function handleSelectPatient(patientId: string) {
-    const patient = doctorPatientsMock.find((item) => item.id === patientId);
+    const patient = doctorPatients.find((item) => item.id === patientId);
     const nextSession = patient?.sessions[0];
     setSelectedPatientId(patientId);
     setSelectedSessionId(nextSession?.id ?? "");
@@ -240,7 +255,16 @@ export function DoctorDashboardPage() {
             <div className="space-y-4 p-4">
               <div className="relative overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
                 <div className="aspect-video bg-[linear-gradient(145deg,#1e293b,#020617)]">
-                  <SkeletonOverlay />
+                  {selectedTaskVideoUrl ? (
+                    <video
+                      className="h-full w-full object-contain"
+                      controls
+                      playsInline
+                      src={selectedTaskVideoUrl}
+                    />
+                  ) : (
+                    <SkeletonOverlay />
+                  )}
                   <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-black/45 px-3 py-1 text-xs font-medium text-white">
                     <Play className="h-3.5 w-3.5 fill-white" />
                     {selectedTask.taskLabel}
@@ -431,8 +455,18 @@ export function DoctorDashboardPage() {
                 <FeedbackAction icon={<Dumbbell className="h-4 w-4" />} label="Exercise plan" />
                 <FeedbackAction icon={<RotateCcw className="h-4 w-4" />} label="Retake task" />
               </div>
-              <Button className="w-full" icon={<Send className="h-4 w-4" />}>
-                ส่ง Structured Feedback
+              <Button
+                className="w-full"
+                icon={<Send className="h-4 w-4" />}
+                onClick={() =>
+                  feedbackMutation.mutate({
+                    clinicalSummary,
+                    patientSummary,
+                    sessionId: selectedSession.id,
+                  })
+                }
+              >
+                {feedbackMutation.isPending ? "กำลังส่ง..." : "ส่ง Structured Feedback"}
               </Button>
             </section>
           </aside>

@@ -410,6 +410,7 @@ export function PatientRecordPage() {
 
     setSaveProgress(12);
     saveTaskMutation.mutate({
+      file: selectedFile,
       movementType: task.id,
       note,
       videoUrl: previewUrl,

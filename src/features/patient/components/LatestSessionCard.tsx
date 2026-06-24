@@ -11,12 +11,16 @@ type LatestSessionCardProps = {
 
 const statusLabels: Record<
   PatientSession["status"],
-  { text: string; tone: "blue" | "green" | "yellow" | "slate" }
+  { text: string; tone: "blue" | "green" | "yellow" | "slate" | "red" }
 > = {
   draft: { text: "Draft", tone: "slate" },
   ready_to_submit: { text: "พร้อมส่ง", tone: "green" },
   waiting_doctor: { text: "รอแพทย์ตรวจ", tone: "yellow" },
+  queued_analysis: { text: "Queued analysis", tone: "blue" },
+  processing_analysis: { text: "Processing", tone: "blue" },
+  pending_doctor_review: { text: "Doctor review", tone: "yellow" },
   feedback_ready: { text: "มี Feedback", tone: "green" },
+  analysis_failed: { text: "Analysis failed", tone: "red" },
 };
 
 export function LatestSessionCard({ session }: LatestSessionCardProps) {
