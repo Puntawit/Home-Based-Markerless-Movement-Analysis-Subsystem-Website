@@ -27,6 +27,7 @@ export function PatientTutorialPage() {
       footer={
         <Button
           className="h-12 w-full bg-cyan-700 hover:bg-cyan-800 focus-visible:ring-cyan-600"
+          data-testid="patient-tutorial-continue"
           disabled={!videoWatched}
           icon={<ChevronRight className="h-4 w-4" />}
           onClick={() => navigate(`/patient/record?task=${task.id}`)}

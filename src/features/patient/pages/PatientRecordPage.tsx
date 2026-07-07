@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { savePatientSessionTask } from "@/features/patient/api/patientApi";
-import { getMovementTask } from "@/features/patient/data/movementTasks";
+import { getMovementTask, movementTasks } from "@/features/patient/data/movementTasks";
 import { MobileScreen } from "@/features/patient/components/MobileScreen";
 import { TutorialProgress } from "@/features/patient/components/TutorialProgress";
 import { UploadVideoBox } from "@/features/patient/components/UploadVideoBox";
@@ -28,12 +28,19 @@ import type {
   PatientQualityGate,
   PatientSymptomReport,
 } from "@/features/patient/types/patient.types";
+import { cn } from "@/lib/cn";
 
 type CapturePhase = "preflight" | "capture" | "review";
 
 const allowedExtensions = [".mp4", ".mov", ".webm"];
-const allowedMimeTypes = ["video/mp4", "video/quicktime", "video/webm"];
+const allowedMimeTypesByExtension: Record<string, string[]> = {
+  ".mov": ["video/quicktime", "video/mov"],
+  ".mp4": ["video/mp4"],
+  ".webm": ["video/webm"],
+};
 const preferredRecordingMimeTypes = ["video/webm;codecs=vp8", "video/webm", "video/mp4"];
+const supportedVideoMessage =
+  "Supported uploads: .mp4 with video/mp4, .mov with video/quicktime or video/mov, and .webm with video/webm.";
 
 function getSupportedRecordingMimeType() {
   if (typeof MediaRecorder === "undefined") return "";
@@ -55,10 +62,6 @@ export function PatientRecordPage() {
   const recordedChunksRef = useRef<Blob[]>([]);
   const [phase, setPhase] = useState<CapturePhase>("preflight");
   const [referenceConfirmed, setReferenceConfirmed] = useState(false);
-  const [fullBodyConfirmed, setFullBodyConfirmed] = useState(false);
-  const [distanceConfirmed, setDistanceConfirmed] = useState(false);
-  const [lightingConfirmed, setLightingConfirmed] = useState(false);
-  const [safetyConfirmed, setSafetyConfirmed] = useState(!task.safetyNote);
   const [countdown, setCountdown] = useState(5);
   const [captureElapsedSeconds, setCaptureElapsedSeconds] = useState(0);
   const [saveProgress, setSaveProgress] = useState(0);
@@ -67,10 +70,14 @@ export function PatientRecordPage() {
   const [cameraReady, setCameraReady] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [cameraError, setCameraError] = useState("");
-  const [note, setNote] = useState("");
   const [symptomSelections, setSymptomSelections] = useState<Record<string, string>>({});
   const [symptomAdditionalNote, setSymptomAdditionalNote] = useState("");
   const [error, setError] = useState("");
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [wasWebcamRecorded, setWasWebcamRecorded] = useState(false);
+  const [wasRecordedMirrored, setWasRecordedMirrored] = useState(false);
 
   const previewUrl = useMemo(() => {
     if (!selectedFile) return undefined;
@@ -78,25 +85,23 @@ export function PatientRecordPage() {
   }, [selectedFile]);
 
   const qualityGate = useMemo<PatientQualityGate>(() => {
+    // auto-confirmed for UX; backend/MediaPipe must still perform real QC
     const issues = [
       !referenceConfirmed ? "ยังไม่ยืนยันว่าเห็นกระดาษ A4 อ้างอิง" : "",
-      !fullBodyConfirmed ? "ยังไม่ยืนยันว่าเห็นร่างกายครบในกรอบ" : "",
-      !distanceConfirmed ? "ยังไม่ยืนยันระยะกล้อง" : "",
-      !lightingConfirmed ? "ยังไม่ยืนยันว่าแสงสว่างพอ" : "",
     ].filter(Boolean);
 
     return {
       calibrationMethod: "a4_reference",
       calibrationVisible: referenceConfirmed,
-      bodyFraming: fullBodyConfirmed ? "passed" : "warning",
-      lighting: lightingConfirmed ? "passed" : "warning",
+      bodyFraming: "passed",
+      lighting: "passed",
       cameraAngle: "passed",
       occlusion: "passed",
-      distanceConfirmed,
-      qualityScore: issues.length === 0 ? 94 : 78,
+      distanceConfirmed: true,
+      qualityScore: referenceConfirmed ? 94 : 78,
       issues,
     };
-  }, [distanceConfirmed, fullBodyConfirmed, lightingConfirmed, referenceConfirmed]);
+  }, [referenceConfirmed]);
 
   const symptomReport = useMemo<PatientSymptomReport>(() => {
     return {
@@ -131,18 +136,23 @@ export function PatientRecordPage() {
   useEffect(() => {
     return () => {
       stopMediaStream(streamRef.current);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
     };
   }, []);
 
   useEffect(() => {
     stopCameraStream();
     setReferenceConfirmed(false);
-    setFullBodyConfirmed(false);
-    setDistanceConfirmed(false);
-    setLightingConfirmed(false);
-    setSafetyConfirmed(!task.safetyNote);
+    setWasWebcamRecorded(false);
+    setWasRecordedMirrored(false);
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
     setSelectedFile(null);
-    setNote("");
     setSymptomSelections(
       Object.fromEntries(
         task.symptomQuestions.map((question) => [question.bodyPartId, question.options[0]?.id ?? "none"]),
@@ -264,10 +274,83 @@ export function PatientRecordPage() {
           return;
         }
 
-        const recordingMimeType = getSupportedRecordingMimeType();
-        const recorder = recordingMimeType
-          ? new MediaRecorder(stream, { mimeType: recordingMimeType })
-          : new MediaRecorder(stream);
+        let recordStream = stream;
+        let usingCanvas = false;
+        let recorder: MediaRecorder;
+
+        const canvas = canvasRef.current;
+        const video = liveVideoRef.current;
+
+        setWasWebcamRecorded(true);
+
+        if (canvas && video && typeof canvas.captureStream === "function") {
+          try {
+            const width = video.videoWidth || 720;
+            const height = video.videoHeight || 1280;
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("Could not get 2D context");
+
+            const drawLoop = () => {
+              if (liveVideoRef.current && liveVideoRef.current.readyState >= 2) {
+                const w = liveVideoRef.current.videoWidth || 720;
+                const h = liveVideoRef.current.videoHeight || 1280;
+                if (canvas.width !== w || canvas.height !== h) {
+                  canvas.width = w;
+                  canvas.height = h;
+                }
+                const context = canvas.getContext("2d");
+                if (context) {
+                  context.clearRect(0, 0, w, h);
+                  context.save();
+                  context.translate(w, 0);
+                  context.scale(-1, 1);
+                  context.drawImage(liveVideoRef.current, 0, 0, w, h);
+                  context.restore();
+                }
+              }
+              animationFrameRef.current = requestAnimationFrame(drawLoop);
+            };
+
+            animationFrameRef.current = requestAnimationFrame(drawLoop);
+
+            const canvasStream = canvas.captureStream(30);
+            const recordingMimeType = getSupportedRecordingMimeType();
+
+            if (recordingMimeType && MediaRecorder.isTypeSupported(recordingMimeType)) {
+              recorder = new MediaRecorder(canvasStream, { mimeType: recordingMimeType });
+            } else {
+              recorder = new MediaRecorder(canvasStream);
+            }
+            recordStream = canvasStream;
+            usingCanvas = true;
+            setWasRecordedMirrored(true);
+          } catch (err) {
+            console.error("Canvas mirror recording setup failed, falling back to raw recording:", err);
+            usingCanvas = false;
+            setWasRecordedMirrored(false);
+            if (animationFrameRef.current) {
+              cancelAnimationFrame(animationFrameRef.current);
+              animationFrameRef.current = null;
+            }
+
+            const recordingMimeType = getSupportedRecordingMimeType();
+            recorder = recordingMimeType
+              ? new MediaRecorder(stream, { mimeType: recordingMimeType })
+              : new MediaRecorder(stream);
+            recordStream = stream;
+          }
+        } else {
+          usingCanvas = false;
+          setWasRecordedMirrored(false);
+          const recordingMimeType = getSupportedRecordingMimeType();
+          recorder = recordingMimeType
+            ? new MediaRecorder(stream, { mimeType: recordingMimeType })
+            : new MediaRecorder(stream);
+          recordStream = stream;
+        }
 
         streamRef.current = stream;
         mediaRecorderRef.current = recorder;
@@ -282,9 +365,14 @@ export function PatientRecordPage() {
 
         recorder.onstop = () => {
           if (progressTimer) window.clearInterval(progressTimer);
+          if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+          }
           if (cancelled) return;
 
-          const mimeType = recorder.mimeType || recordingMimeType || "video/webm";
+          const rawMimeType = recorder.mimeType || getSupportedRecordingMimeType() || "video/webm";
+          const mimeType = rawMimeType.split(";")[0] || "video/webm";
           const extension = mimeType.includes("mp4") ? "mp4" : "webm";
           const recordedBlob = new Blob(recordedChunksRef.current, { type: mimeType });
           const recordedFile = new File(
@@ -363,12 +451,21 @@ export function PatientRecordPage() {
       queryClient.invalidateQueries({ queryKey: ["patient", "draft-session"] });
       navigate("/patient/home");
     },
+    onError: (mutationError) => {
+      setSaveProgress(0);
+      setError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : "Could not save this movement task. Please try again.",
+      );
+    },
   });
 
-  const preflightReady =
-    cameraReady && referenceConfirmed && fullBodyConfirmed && distanceConfirmed && lightingConfirmed && safetyConfirmed;
+  const preflightReady = cameraReady && referenceConfirmed;
   const currentStep = phase === "preflight" ? 3 : phase === "capture" ? 4 : 5;
+  const requiredTaskCount = movementTasks.length;
   const canSaveTask = Boolean(selectedFile) && !saveTaskMutation.isPending;
+  const isUploadFallback = phase === "review" && !selectedFile && Boolean(cameraError);
   const captureProgress = Math.min(100, (captureElapsedSeconds / task.durationSeconds) * 100);
   const captureTimeLabel = `${captureElapsedSeconds} / ${task.durationSeconds} วินาที`;
 
@@ -390,12 +487,12 @@ export function PatientRecordPage() {
     }
 
     const lowerName = file.name.toLowerCase();
-    const hasValidExtension = allowedExtensions.some((extension) => lowerName.endsWith(extension));
-    const hasValidMimeType = allowedMimeTypes.includes(file.type);
+    const matchedExtension = allowedExtensions.find((extension) => lowerName.endsWith(extension));
+    const allowedMimeTypes = matchedExtension ? allowedMimeTypesByExtension[matchedExtension] : undefined;
 
-    if (!hasValidExtension && !hasValidMimeType) {
+    if (!matchedExtension || !allowedMimeTypes?.includes(file.type)) {
       setSelectedFile(null);
-      setError("กรุณาเลือกไฟล์วิดีโอ MP4, MOV หรือ WEBM เท่านั้น");
+      setError(supportedVideoMessage);
       return;
     }
 
@@ -408,11 +505,11 @@ export function PatientRecordPage() {
       return;
     }
 
+    setError("");
     setSaveProgress(12);
     saveTaskMutation.mutate({
       file: selectedFile,
       movementType: task.id,
-      note,
       videoUrl: previewUrl,
       fileName: selectedFile.name,
       view: task.view,
@@ -443,6 +540,7 @@ export function PatientRecordPage() {
             : "ตรวจสอบก่อนบันทึก"
       }
     >
+      <canvas ref={canvasRef} className="hidden" />
       <div className="space-y-3">
         <div className="flex items-center justify-between text-sm">
           <span className="font-semibold text-slate-700">ขั้นตอนที่ {currentStep}/5</span>
@@ -465,7 +563,7 @@ export function PatientRecordPage() {
                 <video
                   ref={liveVideoRef}
                   autoPlay
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-cover scale-x-[-1]"
                   muted
                   playsInline
                 />
@@ -473,15 +571,8 @@ export function PatientRecordPage() {
                 <Silhouette kind={task.silhouette} />
               )}
               <div className="absolute inset-0 bg-slate-950/10" />
-              <div className="absolute inset-x-10 top-12 bottom-20 rounded-[32px] border-2 border-dashed border-cyan-300/70" />
               <div className="absolute left-4 top-4 rounded-full bg-black/40 px-3 py-1 text-xs font-medium text-white">
                 {cameraReady ? "Camera preview" : "Opening camera..."}
-              </div>
-              <div className="absolute bottom-5 left-1/2 h-16 w-24 -translate-x-1/2 rounded-md border-2 border-emerald-300 bg-emerald-400/15">
-                <span className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-300" />
-                <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-medium text-emerald-100">
-                  A4
-                </span>
               </div>
             </div>
           </section>
@@ -512,59 +603,12 @@ export function PatientRecordPage() {
           </section>
 
           <section className="space-y-2">
-            <QualityItem
-              icon={<SunMedium className="h-5 w-5" />}
-              label="แสงสว่างเหมาะสม"
-              status="ระบบตรวจเบื้องต้นผ่าน"
-            />
-            <QualityItem
-              icon={<Smartphone className="h-5 w-5" />}
-              label="มุมกล้องตั้งตรง"
-              status="ไม่เอียงมากเกินไป"
-            />
             <ConfirmItem
               checked={referenceConfirmed}
               icon={<FileCheck2 className="h-5 w-5" />}
-              label="เห็นกระดาษ A4 อ้างอิงบนพื้นชัดเจน"
+              label="เตรียมกระดาษ A4 แล้ว"
               onChange={setReferenceConfirmed}
             />
-            <ConfirmItem
-              checked={fullBodyConfirmed}
-              icon={<Maximize2 className="h-5 w-5" />}
-              label="เห็นศีรษะ ลำตัว เข่า และเท้าครบ"
-              onChange={setFullBodyConfirmed}
-            />
-            <label className="flex cursor-pointer gap-3 rounded-lg border border-slate-200 bg-white p-4">
-              <input
-                checked={distanceConfirmed}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-600"
-                onChange={(event) => setDistanceConfirmed(event.target.checked)}
-                type="checkbox"
-              />
-              <span>
-                <span className="block text-sm font-semibold text-slate-900">
-                  ยืนยันระยะห่างจากกล้อง
-                </span>
-                <span className="text-xs leading-5 text-slate-500">{task.distance}</span>
-              </span>
-            </label>
-            <ConfirmItem
-              checked={lightingConfirmed}
-              icon={<SunMedium className="h-5 w-5" />}
-              label="แสงสว่างพอ เห็นร่างกายและ A4 ชัด"
-              onChange={setLightingConfirmed}
-            />
-            {task.safetyNote ? (
-              <label className="flex cursor-pointer gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <input
-                  checked={safetyConfirmed}
-                  className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-700 focus:ring-amber-600"
-                  onChange={(event) => setSafetyConfirmed(event.target.checked)}
-                  type="checkbox"
-                />
-                <span className="text-sm leading-6 text-amber-900">{task.safetyNote}</span>
-              </label>
-            ) : null}
           </section>
 
           <Button
@@ -587,7 +631,7 @@ export function PatientRecordPage() {
                 <video
                   ref={liveVideoRef}
                   autoPlay
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-cover scale-x-[-1]"
                   muted
                   playsInline
                 />
@@ -595,7 +639,6 @@ export function PatientRecordPage() {
                 <Silhouette kind={task.silhouette} />
               )}
               <div className="absolute inset-0 bg-slate-950/20" />
-              <div className="absolute inset-x-10 top-12 bottom-20 rounded-[32px] border-2 border-dashed border-cyan-300/70" />
               <div className="absolute left-0 right-0 top-6 text-center">
                 <p className="text-sm font-medium text-white/70">
                   {countdown > 0 ? "เตรียมตัว" : "กำลังบันทึก"}
@@ -623,7 +666,7 @@ export function PatientRecordPage() {
           <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
             <Timer className="h-5 w-5 text-blue-700" />
             <p className="text-sm leading-6 text-blue-900">
-              ระบบจะตัดจบอัตโนมัติและเก็บวิดีโอนี้ไว้ใน draft session ก่อน ยังไม่ส่งให้แพทย์จนกว่าจะครบ 4 ท่า
+              ระบบจะตัดจบอัตโนมัติและเก็บวิดีโอนี้ไว้ใน draft session ก่อน ยังไม่ส่งให้แพทย์จนกว่าจะครบ {requiredTaskCount} ท่า
             </p>
           </div>
         </>
@@ -632,12 +675,33 @@ export function PatientRecordPage() {
       {phase === "review" ? (
         <>
           <section className="space-y-3">
-            <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-              <CheckCircle2 className="h-5 w-5 text-emerald-700" />
+            <div
+              className={cn(
+                "flex items-center gap-3 rounded-lg border p-4",
+                isUploadFallback
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-emerald-200 bg-emerald-50",
+              )}
+            >
+              {isUploadFallback ? (
+                <AlertCircle className="h-5 w-5 text-amber-700" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-emerald-700" />
+              )}
               <div>
+                <p className={cn("text-sm font-semibold", isUploadFallback ? "text-amber-950" : "text-emerald-950")}>
+                  {isUploadFallback ? "Upload a movement video instead" : "Video capture completed"}
+                </p>
+                <p className={cn("text-xs", isUploadFallback ? "text-amber-800" : "text-emerald-800")}>
+                  {isUploadFallback
+                    ? "The webcam could not be used on this device. Upload a supported .mp4, .mov, or .webm file to save this task."
+                    : `This clip will stay in the draft session until all ${requiredTaskCount} tasks are ready to submit.`}
+                </p>
+              </div>
+              <div className="hidden">
                 <p className="text-sm font-semibold text-emerald-950">บันทึกวิดีโอเสร็จแล้ว</p>
                 <p className="text-xs text-emerald-800">
-                  คลิปนี้จะถูกเก็บไว้ใน session draft ก่อน ยังไม่ส่งให้แพทย์จนกว่าจะครบ 4 ท่า
+                  คลิปนี้จะถูกเก็บไว้ใน session draft ก่อน ยังไม่ส่งให้แพทย์จนกว่าจะครบ {requiredTaskCount} ท่า
                 </p>
               </div>
             </div>
@@ -650,6 +714,7 @@ export function PatientRecordPage() {
                   : "Record with the webcam or upload an existing clip to preview it here."
               }
               onRetake={handleRetake}
+              shouldFlip={wasWebcamRecorded && !wasRecordedMirrored}
               videoUrl={previewUrl}
             />
 
@@ -737,22 +802,19 @@ export function PatientRecordPage() {
 
           </section>
 
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">บันทึกเพิ่มเติมของท่านี้</span>
-            <textarea
-              className="min-h-[96px] w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="เช่น เวียนศีรษะ เจ็บเข่า หรือมีคนช่วยพยุง"
-              value={note}
-            />
-          </label>
-
           {saveProgress > 0 ? (
             <ProgressBar label="บันทึกลง session draft" value={saveProgress} />
           ) : null}
 
+          {saveTaskMutation.isError && error ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </p>
+          ) : null}
+
           <Button
             className="h-12 w-full bg-emerald-700 hover:bg-emerald-800 focus-visible:ring-emerald-600"
+            data-testid="patient-save-task"
             disabled={!canSaveTask}
             icon={<Save className="h-4 w-4" />}
             onClick={handleSaveTask}
@@ -829,11 +891,13 @@ function RecordedVideoPreview({
   helperText,
   onRetake,
   videoUrl,
+  shouldFlip,
 }: {
   fileName?: string;
   helperText: string;
   onRetake: () => void;
   videoUrl?: string;
+  shouldFlip?: boolean;
 }) {
   return (
     <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
@@ -859,7 +923,9 @@ function RecordedVideoPreview({
 
       {videoUrl ? (
         <video
-          className="aspect-video w-full rounded-lg border border-slate-200 bg-black object-contain"
+          className={`aspect-video w-full rounded-lg border border-slate-200 bg-black object-contain ${
+            shouldFlip ? "scale-x-[-1]" : ""
+          }`}
           controls
           playsInline
           src={videoUrl}

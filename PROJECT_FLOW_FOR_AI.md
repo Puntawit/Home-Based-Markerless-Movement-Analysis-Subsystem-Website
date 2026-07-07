@@ -13,7 +13,7 @@ The main idea is:
 5. A doctor reviews movement quality, risk flags, event markers, charts, and writes feedback.
 6. The patient reads the doctor feedback and exercise plan.
 
-The current repository is mostly frontend-only. It uses mock data and in-memory mock APIs instead of a real backend, database, video storage, or machine learning pipeline.
+The active patient, doctor, and admin flows are wired to the FastAPI backend in `backend/`, with MongoDB metadata storage and MediaPipe service integration for analysis. Some legacy prototype screens still use older mock data.
 
 ## Tech Stack
 
@@ -39,9 +39,12 @@ Main routes:
 | `/patient/home` | Patient home and current draft session |
 | `/patient/tutorial` | Tutorial before recording a movement task |
 | `/patient/record` | Camera setup, recording/upload, review, symptom report, save task |
-| `/patient/status` | Mock session processing status |
+| `/patient/status` | Session processing and review status |
 | `/patient/feedback` | Patient-facing doctor feedback |
+| `/doctor/login` | Demo doctor login |
 | `/doctor/dashboard` | Doctor review dashboard |
+| `/admin/login` | Admin password login |
+| `/admin/dashboard` | Admin users, videos, feedback, and payload console |
 
 The `src/features/analysis` and `src/features/dashboard` folders contain older or standalone analysis UI code, but they are not currently connected in `src/app/router.tsx`.
 
@@ -63,15 +66,17 @@ src/features/patient/data/patient.mock.ts
 
 ### Assessment Session
 
-A patient session contains 4 required movement tasks. A session starts as a draft. Each task becomes recorded after the patient records or uploads a video and saves it.
+A patient session contains 6 required lower-limb ROM movement tasks. A session starts as a draft. Each task becomes recorded after the patient records or uploads a video and saves it.
 
 Session statuses:
 
 | Status | Meaning |
 | --- | --- |
 | `draft` | Some tasks are not finished yet |
-| `ready_to_submit` | All 4 tasks are recorded |
-| `waiting_doctor` | Submitted and waiting for doctor review |
+| `ready_to_submit` | All 6 tasks are recorded |
+| `queued_analysis` | Submitted and waiting for analysis |
+| `processing_analysis` | MediaPipe analysis is running |
+| `pending_doctor_review` | Analysis completed and waiting for doctor review |
 | `feedback_ready` | Doctor feedback is available |
 
 ### Movement Tasks
@@ -82,14 +87,16 @@ Defined in:
 src/features/patient/data/movementTasks.ts
 ```
 
-Current tasks:
+Current active tasks:
 
 | Task ID | Display Name | Purpose |
 | --- | --- | --- |
-| `gait_walk` | Gait Walk | Walk straight for gait observation |
-| `sit_to_stand` | Sit to Stand | Stand up and sit down repeatedly |
-| `single_leg_stance` | Single Leg Stance | Balance assessment |
-| `shoulder_flexion` | Shoulder Flexion | Shoulder range and trunk compensation check |
+| `hip_flexion` | Hip Flexion | Seated trunk-to-thigh ROM check |
+| `hip_extension` | Hip Extension | Prone straight-leg thigh-rise ROM check |
+| `knee_flexion` | Knee Flexion | Seated edge thigh-to-shank flexion check |
+| `knee_extension` | Knee Extension | Seated edge return-to-straight knee check |
+| `ankle_dorsiflexion` | Ankle Dorsiflexion | Seated heel-down shank-to-foot angle check |
+| `ankle_plantarflexion` | Ankle Plantarflexion | Seated toe-point shank-to-foot angle check |
 
 Each task includes:
 
@@ -139,13 +146,13 @@ getLatestPatientSession()
 getLatestDoctorFeedback()
 ```
 
-The page shows the 4 movement tasks. Selecting a task navigates to:
+The page shows the 6 lower-limb ROM movement tasks. Selecting a task navigates to:
 
 ```text
 /patient/tutorial?task=<task_id>
 ```
 
-When all 4 tasks are recorded, the submit button becomes enabled. Pressing it calls:
+When all 6 tasks are recorded, the submit button becomes enabled. Pressing it calls:
 
 ```text
 submitPatientSession()
@@ -170,7 +177,7 @@ The tutorial page reads the selected task from the `task` query parameter.
 Example:
 
 ```text
-/patient/tutorial?task=gait_walk
+/patient/tutorial?task=hip_flexion
 ```
 
 It displays the tutorial text and task-specific camera instructions. The page simulates watching a tutorial video by enabling the next button after a short delay.
@@ -256,15 +263,13 @@ File:
 src/features/patient/api/patientApi.ts
 ```
 
-When all 4 tasks are recorded, `submitPatientSession()` changes the draft into a submitted session with status:
+When all 6 tasks are recorded, `submitPatientSession()` changes the draft into a submitted session with status:
 
 ```text
-waiting_doctor
+queued_analysis
 ```
 
-Then it resets the draft session for the next assessment.
-
-Important limitation: this state is stored in browser runtime memory only. Refreshing the page may reset data.
+The backend then starts MediaPipe analysis jobs and moves the session through analysis and doctor-review statuses.
 
 ### 6. Status Page
 
@@ -274,14 +279,14 @@ File:
 src/features/patient/pages/PatientStatusPage.tsx
 ```
 
-The status page shows a mock pipeline:
+The status page shows the active backend-backed pipeline:
 
 1. Session submitted
 2. MediaPipe Pose Extraction
-3. Random Forest Screening
+3. Analysis completed
 4. Doctor review
 
-This page does not run real MediaPipe or Random Forest. It only displays status based on mock session state.
+This page displays backend session status and polls while analysis or doctor review is still in progress.
 
 ### 7. Feedback Page
 
@@ -317,7 +322,7 @@ File:
 src/features/doctor/pages/DoctorDashboardPage.tsx
 ```
 
-Mock data:
+Shared type/mock shape helpers still live in:
 
 ```text
 src/features/doctor/data/doctor.mock.ts
@@ -336,7 +341,7 @@ The doctor dashboard lets a doctor:
 9. Write a clinical summary and patient-friendly summary.
 10. Use UI buttons for exercise plan, retake task, and structured feedback.
 
-Important limitation: the doctor dashboard currently uses separate mock data. It does not read submitted sessions from the patient mock API, and the send feedback button does not update patient state yet.
+The active doctor dashboard reads backend sessions, shows analyzed task results, and submits structured feedback back to the backend so the patient can read it.
 
 ## Intended Full System Architecture
 
@@ -350,7 +355,7 @@ The project proposal describes a bigger 5-layer system:
 | L4 Analysis / Screening | Rule-based or lightweight ML flags risk and abnormality |
 | L5 Application UI | Patient and doctor web interfaces |
 
-Only L5 is mostly implemented in this repository right now. L1 is partially implemented in the browser through webcam recording/upload. L2-L4 are represented by mock data and UI placeholders.
+The current demo implements the core L1/L5 application flow and stores metadata in MongoDB. L2-L4 are represented by the external MediaPipe service integration and normalized analysis payloads, with the E2E stack using a fake MediaPipe service.
 
 ## Important Data Flow For Future AI Work
 
@@ -364,15 +369,17 @@ flowchart TD
   F --> G["Record Page: Review"]
   G --> H["savePatientSessionTask"]
   H --> B
-  B --> I{"All 4 tasks recorded?"}
+  B --> I{"All 6 tasks recorded?"}
   I -->|"No"| C
   I -->|"Yes"| J["submitPatientSession"]
   J --> K["Patient Status"]
   K --> L["Patient Feedback"]
 
-  M["doctor.mock.ts"] --> N["Doctor Dashboard"]
-  N --> O["Review Task Metrics"]
-  O --> P["Write Structured Feedback UI"]
+  J --> M["Backend Analysis Job"]
+  M --> N["MediaPipe Service"]
+  N --> O["Doctor Dashboard"]
+  O --> P["Write Structured Feedback"]
+  P --> L
 ```
 
 ## Key Files For AI Agents
@@ -381,38 +388,31 @@ flowchart TD
 | --- | --- |
 | `src/app/router.tsx` | Defines the currently active routes |
 | `src/app/providers.tsx` | Sets up TanStack Query |
-| `src/features/patient/api/patientApi.ts` | Patient mock API and in-memory session state |
+| `src/features/patient/api/patientApi.ts` | Patient backend API helpers |
 | `src/features/patient/data/movementTasks.ts` | Movement task definitions |
-| `src/features/patient/data/patient.mock.ts` | Demo patient, mock sessions, mock feedback |
+| `src/features/patient/data/patient.mock.ts` | Legacy demo patient/mock data |
 | `src/features/patient/types/patient.types.ts` | Patient/session/feedback TypeScript types |
 | `src/features/patient/pages/PatientHomePage.tsx` | Patient draft session overview and submit button |
 | `src/features/patient/pages/PatientRecordPage.tsx` | Camera setup, recording, upload, review, symptom report |
-| `src/features/patient/pages/PatientStatusPage.tsx` | Mock processing status |
+| `src/features/patient/pages/PatientStatusPage.tsx` | Backend processing and review status |
 | `src/features/patient/pages/PatientFeedbackPage.tsx` | Patient-facing feedback |
-| `src/features/doctor/data/doctor.mock.ts` | Doctor dashboard mock analysis data |
+| `src/features/doctor/data/doctor.mock.ts` | Doctor type/mock shape helpers |
 | `src/features/doctor/pages/DoctorDashboardPage.tsx` | Doctor review UI |
 
 ## Current Limitations
 
-- No real backend API.
-- No persistent database.
-- No real video upload service.
-- No real MediaPipe or pose estimation pipeline.
-- No real Random Forest or ML screening.
-- Doctor dashboard does not consume patient-submitted mock sessions.
-- Doctor feedback builder does not save feedback back to patient state.
+- Local demo upload storage is not suitable for real patient data.
+- Full analysis depends on an external MediaPipe-compatible service outside the frontend/backend dev servers.
+- The E2E MediaPipe service is a deterministic fake and does not validate clinical pose-estimation accuracy.
+- Negative E2E cases such as expired tokens, failed MediaPipe analysis, upload quota, and validation failures are still future work.
 - Some Thai text in existing files appears mojibake/encoding-corrupted.
-- No automated test framework is configured.
+- Hybrid E2E coverage is configured through Playwright, with Docker compose providing MongoDB and a fake MediaPipe service for the happy path.
 
 ## Suggested Next Steps
 
 1. Fix Thai text encoding in source and mock data.
-2. Connect doctor dashboard to submitted patient sessions.
-3. Make structured feedback update patient-visible feedback.
-4. Replace in-memory mock API with backend endpoints.
-5. Add secure video upload flow, preferably signed URL based.
-6. Add pose estimation and quality-control pipeline.
-7. Add persistent session and feedback storage.
-8. Add role-based authentication for patient and doctor.
-9. Add tests for patient flow and doctor feedback flow.
-
+2. Add negative E2E coverage for token expiry, failed analysis, upload quota, and validation failures.
+3. Add unit/component tests around high-risk frontend and backend helpers.
+4. Replace local demo upload storage with production-grade object storage or signed upload flow.
+5. Add a clinically validated pose-estimation and screening pipeline.
+6. Harden role-based authentication and authorization for production use.

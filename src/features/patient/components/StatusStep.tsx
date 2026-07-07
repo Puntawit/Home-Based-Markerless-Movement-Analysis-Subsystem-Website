@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { CheckCircle2, Clock3 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type StatusStepState = "done" | "loading" | "pending";
+type StatusStepState = "done" | "failed" | "loading" | "pending";
 
 type StatusStepProps = {
   title: string;
@@ -18,6 +18,10 @@ const stateStyles: Record<StatusStepState, { row: string; icon: ReactNode }> = {
   loading: {
     row: "border-blue-200 bg-blue-50",
     icon: <span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />,
+  },
+  failed: {
+    row: "border-rose-200 bg-rose-50",
+    icon: <AlertTriangle className="h-5 w-5 text-rose-600" />,
   },
   pending: {
     row: "border-amber-200 bg-amber-50",

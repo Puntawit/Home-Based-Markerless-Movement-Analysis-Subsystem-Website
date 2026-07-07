@@ -51,9 +51,9 @@ function normalizeFeedback(feedback: DoctorFeedback | null): DoctorFeedback | nu
   };
 }
 
-export async function mockLogin() {
+export async function mockLogin(patientId: string) {
   const result = await backendRequest<MockLoginResponse>("/auth/mock-login", {
-    body: JSON.stringify({ role: "patient" }),
+    body: JSON.stringify({ role: "patient", patientId }),
     method: "POST",
   });
   setBackendAuthToken(result.accessToken);

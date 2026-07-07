@@ -1,6 +1,6 @@
 import type { PatientMovementType } from "@/features/patient/types/patient.types";
 
-export type DoctorRiskLevel = "low" | "moderate" | "high";
+export type DoctorRiskLevel = "low" | "moderate" | "high" | "unknown";
 export type EventSeverity = "info" | "warning" | "critical";
 
 export type DoctorEventMarker = {
@@ -13,9 +13,10 @@ export type DoctorSessionTask = {
   id: string;
   movementType: PatientMovementType;
   taskLabel: string;
+  fileId?: string;
   riskLevel: DoctorRiskLevel;
-  confidence: number;
-  qualityScore: number;
+  confidence: number | null;
+  qualityScore: number | null;
   qualityIssues: string[];
   recommendedAction: string;
   flags: string[];
@@ -37,7 +38,9 @@ export type DoctorSession = {
   id: string;
   patientId: string;
   createdAt: string;
-  status: "pending_review" | "reviewed" | "processing";
+  status: "pending_review" | "reviewed" | "processing" | "analysis_failed";
+  analysisJobId?: string;
+  analysisJobError?: string | null;
   riskLevel: DoctorRiskLevel;
   tasks: DoctorSessionTask[];
 };

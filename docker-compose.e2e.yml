@@ -1,0 +1,16 @@
+services:
+  mongo-e2e:
+    image: mongo:7
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo-e2e-data:/data/db
+
+  fake-mediapipe:
+    build:
+      context: ./tests/e2e/fake-mediapipe
+    ports:
+      - "127.0.0.1:8010:8010"
+
+volumes:
+  mongo-e2e-data:

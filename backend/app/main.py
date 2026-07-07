@@ -1,12 +1,15 @@
+import asyncio
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db.mongo import close_mongo_connection, connect_to_mongo
-from app.routers import analysis, auth, doctor, patient, patients, uploads
+from app.routers import admin, analysis, auth, doctor, patient, patients, uploads
 from app.schemas import HealthResponse
+from app.services.analysis import recover_pending_analysis_jobs
 
 
 @asynccontextmanager
@@ -14,6 +17,8 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     await connect_to_mongo()
+    if settings.recover_analysis_jobs_on_startup:
+        asyncio.create_task(recover_pending_analysis_jobs())
     try:
         yield
     finally:
@@ -27,9 +32,21 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Range"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    request.state.request_id = request.headers.get("x-request-id") or f"req_{uuid4().hex}"
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    if request.url.path.startswith(("/uploads", "/patient", "/doctor", "/admin", "/analysis", "/auth")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -42,4 +59,5 @@ app.include_router(patients.router)
 app.include_router(uploads.router)
 app.include_router(patient.router)
 app.include_router(doctor.router)
+app.include_router(admin.router)
 app.include_router(analysis.router)

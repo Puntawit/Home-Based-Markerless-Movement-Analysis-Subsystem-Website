@@ -1,24 +1,26 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from app.core.auth import CurrentUser, require_patient
 from app.db.mongo import get_db
-from app.schemas import MovementType, SaveTaskRequest
+from app.schemas import FeedbackResponse, MovementType, SaveTaskRequest, SessionResponse
+from app.services.audit import audit_event
 from app.services.analysis import run_analysis_job
 from app.services.sessions import get_or_create_draft_session, new_id, public_doc, refresh_session_status, utc_now
 
 router = APIRouter(prefix="/patient", tags=["patient"])
 
 
-@router.get("/sessions/draft")
+@router.get("/sessions/draft", response_model=SessionResponse)
 async def get_draft_session(user: CurrentUser = Depends(require_patient)) -> dict:
     db = get_db()
     return await get_or_create_draft_session(db, user.id, user.display_name)
 
 
-@router.post("/sessions/draft/tasks/{movement_type}")
+@router.post("/sessions/draft/tasks/{movement_type}", response_model=SessionResponse)
 async def save_draft_task(
     movement_type: MovementType,
     payload: SaveTaskRequest,
+    request: Request,
     user: CurrentUser = Depends(require_patient),
 ) -> dict:
     db = get_db()
@@ -57,12 +59,23 @@ async def save_draft_task(
         {"sessionId": session["sessionId"]},
         {"$set": {"tasks": session["tasks"], "status": session["status"], "updatedAt": session["updatedAt"]}},
     )
+    await audit_event(
+        action="patient.save_task",
+        outcome="success",
+        request=request,
+        actor=user,
+        resource_type="session",
+        resource_id=session["sessionId"],
+        patient_id=user.id,
+        details={"movementType": movement_type},
+    )
     return public_doc(session)
 
 
-@router.post("/sessions/submit")
+@router.post("/sessions/submit", response_model=SessionResponse)
 async def submit_session(
     background_tasks: BackgroundTasks,
+    request: Request,
     user: CurrentUser = Depends(require_patient),
 ) -> dict:
     db = get_db()
@@ -71,7 +84,7 @@ async def submit_session(
     if session["status"] != "ready_to_submit":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please complete all 4 movement videos before submitting.",
+            detail="Please complete all 6 lower-limb ROM videos before submitting.",
         )
 
     now = utc_now()
@@ -85,6 +98,10 @@ async def submit_session(
         "failedTasks": 0,
         "taskResults": [],
         "taskErrors": [],
+        "attemptCount": 0,
+        "lastError": None,
+        "startedAt": None,
+        "finishedAt": None,
         "createdAt": now,
         "updatedAt": now,
     }
@@ -101,23 +118,34 @@ async def submit_session(
             }
         },
     )
-    background_tasks.add_task(run_analysis_job, db, job["jobId"])
+    background_tasks.add_task(run_analysis_job, job["jobId"])
     updated = await db.sessions.find_one({"sessionId": session["sessionId"]})
+    await audit_event(
+        action="patient.submit_session",
+        outcome="success",
+        request=request,
+        actor=user,
+        resource_type="session",
+        resource_id=session["sessionId"],
+        patient_id=user.id,
+    )
     return public_doc(updated)
 
 
-@router.get("/sessions/latest")
-async def latest_session(user: CurrentUser = Depends(require_patient)) -> dict | None:
+@router.get("/sessions/latest", response_model=SessionResponse | None)
+async def latest_session(request: Request, user: CurrentUser = Depends(require_patient)) -> dict | None:
     db = get_db()
     session = await db.sessions.find_one(
         {"patientId": user.id, "status": {"$nin": ["draft", "ready_to_submit"]}},
         sort=[("submittedAt", -1), ("createdAt", -1)],
     )
+    await audit_event(action="patient.latest_session", outcome="success", request=request, actor=user, patient_id=user.id)
     return public_doc(session)
 
 
-@router.get("/feedback/latest")
-async def latest_feedback(user: CurrentUser = Depends(require_patient)) -> dict | None:
+@router.get("/feedback/latest", response_model=FeedbackResponse | None)
+async def latest_feedback(request: Request, user: CurrentUser = Depends(require_patient)) -> dict | None:
     db = get_db()
     feedback = await db.feedback.find_one({"patientId": user.id}, sort=[("createdAt", -1)])
+    await audit_event(action="patient.latest_feedback", outcome="success", request=request, actor=user, patient_id=user.id)
     return public_doc(feedback)

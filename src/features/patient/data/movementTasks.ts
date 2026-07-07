@@ -38,102 +38,154 @@ export type SymptomQuestion = {
 };
 
 const commonJointOptions: SymptomOption[] = [
-  { id: "none", label: "ไม่มีอาการ" },
-  { id: "pain", label: "ปวด" },
-  { id: "tight", label: "ตึง/ฝืด" },
-  { id: "weak", label: "อ่อนแรง" },
-  { id: "numb", label: "ชา/เสียว" },
+  { id: "none", label: "No symptoms" },
+  { id: "pain", label: "Pain" },
+  { id: "tight", label: "Tight/stiff" },
+  { id: "weak", label: "Weak" },
+  { id: "numb", label: "Numb/tingly" },
 ];
 
-const balanceOptions: SymptomOption[] = [
-  { id: "none", label: "ไม่มีอาการ" },
-  { id: "unstable", label: "ไม่มั่นคง" },
-  { id: "pain", label: "ปวด" },
-  { id: "weak", label: "อ่อนแรง" },
-  { id: "dizzy", label: "เวียนหัว" },
+const safetyOptions: SymptomOption[] = [
+  { id: "none", label: "No symptoms" },
+  { id: "pain", label: "Pain" },
+  { id: "dizzy", label: "Dizzy" },
+  { id: "unsafe", label: "Felt unsafe" },
 ];
+
+export const legacyMovementTaskLabels: Partial<Record<PatientMovementType, string>> = {
+  gait_walk: "Gait Walk",
+  shoulder_flexion: "Shoulder Flexion",
+  single_leg_stance: "Single Leg Stance",
+  sit_to_stand: "Sit to Stand",
+  stair_task: "Stair Task",
+};
 
 export const movementTasks: MovementTask[] = [
   {
-    id: "gait_walk",
-    label: "เดินตรง 5 เมตร",
-    shortLabel: "Gait Walk",
-    description: "หันหน้าตรง เดินให้เห็นทั้งตัวตั้งแต่เริ่มจนจบทางเดิน",
-    view: "front",
-    distance: "ตั้งกล้องห่างประมาณ 2.5-3 เมตร และให้เห็นเท้ากับศีรษะครบ",
-    durationSeconds: 15,
-    tutorialTitle: "เดินตรงช้า ๆ ให้กล้องเห็นเต็มตัว",
-    tutorialBody:
-      "ตั้งโทรศัพท์ให้นิ่ง เห็นตั้งแต่ศีรษะถึงเท้า วางกระดาษ A4 บนพื้นให้เห็นชัด แล้วเดินตรงในจังหวะปกติ",
-    silhouette: "front",
-    icon: Footprints,
-    symptomQuestions: [
-      { bodyPartId: "hip", bodyPartLabel: "สะโพก", options: commonJointOptions },
-      { bodyPartId: "knee", bodyPartLabel: "เข่า", options: commonJointOptions },
-      { bodyPartId: "ankle", bodyPartLabel: "ข้อเท้า", options: commonJointOptions },
-      { bodyPartId: "foot", bodyPartLabel: "เท้า", options: commonJointOptions },
-    ],
-  },
-  {
-    id: "sit_to_stand",
-    label: "ลุก-นั่งจากเก้าอี้ 5 ครั้ง",
-    shortLabel: "Sit to Stand",
-    description: "หันข้างให้กล้อง เห็นเก้าอี้ ลำตัว เข่า และเท้าชัดเจน",
+    id: "hip_flexion",
+    label: "Hip Flexion",
+    shortLabel: "Hip Flexion",
+    description: "Sit side-on to the camera and lift one knee toward the chest as high as comfortable.",
     view: "side",
-    distance: "ตั้งกล้องห่างประมาณ 2 เมตร และให้เก้าอี้อยู่ในกรอบตลอด",
-    durationSeconds: 12,
-    tutorialTitle: "ลุกขึ้นและนั่งลงต่อเนื่อง 5 ครั้ง",
+    distance: "Place the camera about 1.5-2 m away at hip height, side to your chair.",
+    durationSeconds: 10,
+    tutorialTitle: "Seated knee lift for hip flexion",
     tutorialBody:
-      "วางเก้าอี้ด้านข้างกล้อง ลุกและนั่งด้วยจังหวะสม่ำเสมอโดยไม่รีบ และอย่าให้เข่าหรือเท้าหลุดจากกรอบ",
+      "Sit tall in a sturdy chair with both feet flat. Keep your trunk upright, then lift one knee toward your chest as high as comfortable. The system reads the trunk-to-thigh angle from the side view.",
+    safetyNote:
+      "Stay seated throughout this task. Do not stand up or lean back hard to force the movement.",
     silhouette: "side-chair",
     icon: Armchair,
     symptomQuestions: [
-      { bodyPartId: "hip", bodyPartLabel: "สะโพก", options: commonJointOptions },
-      { bodyPartId: "thigh", bodyPartLabel: "ต้นขา", options: commonJointOptions },
-      { bodyPartId: "knee", bodyPartLabel: "เข่า", options: commonJointOptions },
-      { bodyPartId: "back", bodyPartLabel: "หลังส่วนล่าง", options: commonJointOptions },
+      { bodyPartId: "hip", bodyPartLabel: "Hip", options: commonJointOptions },
+      { bodyPartId: "thigh", bodyPartLabel: "Thigh", options: commonJointOptions },
+      { bodyPartId: "back", bodyPartLabel: "Lower back", options: commonJointOptions },
     ],
   },
   {
-    id: "single_leg_stance",
-    label: "ยืนขาเดียว",
-    shortLabel: "Single Leg",
-    description: "หันหน้าตรง มีผู้ดูแลหรือเก้าอี้ใกล้ตัวเพื่อความปลอดภัย",
-    view: "front",
-    distance: "ตั้งกล้องห่างประมาณ 2.5 เมตร เห็นสะโพก เข่า และเท้าทั้งสองข้าง",
+    id: "hip_extension",
+    label: "Hip Extension",
+    shortLabel: "Hip Extension",
+    description: "Lie face-down, keep the leg straight, and lift one straight leg off the surface.",
+    view: "side",
+    distance: "Place the camera about 1.5-2 m away at bed or mat height, side to your body.",
     durationSeconds: 10,
-    tutorialTitle: "ยืนขาเดียวโดยควบคุมการทรงตัว",
+    tutorialTitle: "Prone straight-leg lift for hip extension",
     tutorialBody:
-      "ยืนให้เต็มตัวอยู่ในกรอบ ยกขาข้างหนึ่งขึ้นเล็กน้อย แล้วค้างไว้เท่าที่ปลอดภัย ถ้าเสียการทรงตัวให้จับเก้าอี้ทันที",
+      "Lie face-down on a bed or mat with both legs straight. Lift one straight leg gently off the surface without bending the knee. If lying prone is difficult, stand facing a counter with both hands supported and gently swing one leg back.",
     safetyNote:
-      "คำเตือน: ควรมีผู้ดูแลอยู่ใกล้ ๆ และวางเก้าอี้ไว้ด้านข้างเพื่อพยุงตัว",
-    silhouette: "front",
-    icon: ShieldAlert,
-    symptomQuestions: [
-      { bodyPartId: "balance", bodyPartLabel: "การทรงตัว", options: balanceOptions },
-      { bodyPartId: "hip", bodyPartLabel: "สะโพก", options: commonJointOptions },
-      { bodyPartId: "knee", bodyPartLabel: "เข่า", options: commonJointOptions },
-      { bodyPartId: "ankle", bodyPartLabel: "ข้อเท้า", options: commonJointOptions },
-    ],
-  },
-  {
-    id: "shoulder_flexion",
-    label: "ยกแขนขึ้นเหนือหัว",
-    shortLabel: "Shoulder Flexion",
-    description: "ถ่ายวิดีโอเดียวเพื่อดูมุมไหล่และการชดเชยลำตัว",
-    view: "front_and_side",
-    distance: "ตั้งกล้องห่างประมาณ 2 เมตร เห็นลำตัว แขน และศีรษะครบ",
-    durationSeconds: 12,
-    tutorialTitle: "ยกแขนขึ้นเหนือหัวช้า ๆ",
-    tutorialBody:
-      "ยืนตัวตรง ยกแขนขึ้นเหนือหัวช้า ๆ และพยายามไม่เอนลำตัวช่วย ถ้ามีอาการเจ็บให้หยุดทันที",
+      "Use the prone version when possible. For the standing alternative, keep both hands on a stable counter and stop if you feel unsafe.",
     silhouette: "side-chair",
     icon: Activity,
     symptomQuestions: [
-      { bodyPartId: "shoulder", bodyPartLabel: "ไหล่", options: commonJointOptions },
-      { bodyPartId: "upper_arm", bodyPartLabel: "ต้นแขน", options: commonJointOptions },
-      { bodyPartId: "neck", bodyPartLabel: "คอ", options: commonJointOptions },
-      { bodyPartId: "back", bodyPartLabel: "หลัง/ลำตัว", options: commonJointOptions },
+      { bodyPartId: "hip", bodyPartLabel: "Hip", options: commonJointOptions },
+      { bodyPartId: "thigh", bodyPartLabel: "Thigh", options: commonJointOptions },
+      { bodyPartId: "back", bodyPartLabel: "Lower back", options: commonJointOptions },
+      { bodyPartId: "safety", bodyPartLabel: "Safety", options: safetyOptions },
+    ],
+  },
+  {
+    id: "knee_flexion",
+    label: "Knee Flexion",
+    shortLabel: "Knee Flexion",
+    description: "Sit on the edge of a bed or table with thighs supported, then bend the knee to draw the heel back.",
+    view: "side",
+    distance: "Place the camera about 1.5-2 m away, side to the tested leg.",
+    durationSeconds: 10,
+    tutorialTitle: "Seated edge knee bend",
+    tutorialBody:
+      "Sit on the edge of a bed or stable table. Keep your thigh supported and let the lower leg hang. Bend the knee to draw the heel back under you while staying stable and supported.",
+    safetyNote:
+      "Make sure the bed or table is stable before starting. Keep your hands supported if needed.",
+    silhouette: "side-chair",
+    icon: Armchair,
+    symptomQuestions: [
+      { bodyPartId: "knee", bodyPartLabel: "Knee", options: commonJointOptions },
+      { bodyPartId: "thigh", bodyPartLabel: "Thigh", options: commonJointOptions },
+      { bodyPartId: "calf", bodyPartLabel: "Calf", options: commonJointOptions },
+    ],
+  },
+  {
+    id: "knee_extension",
+    label: "Knee Extension",
+    shortLabel: "Knee Extension",
+    description: "From the same seated edge position, straighten the lower leg out toward horizontal.",
+    view: "side",
+    distance: "Place the camera about 1.5-2 m away, side to the tested leg.",
+    durationSeconds: 10,
+    tutorialTitle: "Seated edge knee straightening",
+    tutorialBody:
+      "Sit on the edge of a bed or stable table with your thigh supported. Slowly straighten the lower leg toward horizontal, then relax. The system reads the thigh-to-shank angle as the knee returns toward straight.",
+    safetyNote:
+      "Do not kick quickly. Move slowly and stop if knee pain increases.",
+    silhouette: "side-chair",
+    icon: Footprints,
+    symptomQuestions: [
+      { bodyPartId: "knee", bodyPartLabel: "Knee", options: commonJointOptions },
+      { bodyPartId: "thigh", bodyPartLabel: "Thigh", options: commonJointOptions },
+      { bodyPartId: "calf", bodyPartLabel: "Calf", options: commonJointOptions },
+    ],
+  },
+  {
+    id: "ankle_dorsiflexion",
+    label: "Ankle Dorsiflexion",
+    shortLabel: "Dorsiflexion",
+    description: "Sit with the foot flat, keep the heel on the floor, and lift the toes up toward the shin.",
+    view: "side",
+    distance: "Place the camera about 1-1.5 m away, side to the tested foot and ankle.",
+    durationSeconds: 8,
+    tutorialTitle: "Seated toe lift with heel down",
+    tutorialBody:
+      "Sit in a chair with your foot flat on the floor. Keep the heel planted and lift the toes and forefoot up toward the shin. This replaces the standing knee-to-wall lunge for a safer shank-to-foot angle.",
+    safetyNote:
+      "Keep the heel on the floor and stay seated. No standing lunge is needed.",
+    silhouette: "side-chair",
+    icon: ShieldAlert,
+    symptomQuestions: [
+      { bodyPartId: "ankle", bodyPartLabel: "Ankle", options: commonJointOptions },
+      { bodyPartId: "foot", bodyPartLabel: "Foot", options: commonJointOptions },
+      { bodyPartId: "calf", bodyPartLabel: "Calf", options: commonJointOptions },
+    ],
+  },
+  {
+    id: "ankle_plantarflexion",
+    label: "Ankle Plantarflexion",
+    shortLabel: "Plantarflexion",
+    description: "Sit with the foot lifted slightly off the floor, then point the toes down as far as comfortable.",
+    view: "side",
+    distance: "Place the camera about 1-1.5 m away, side to the tested foot and ankle.",
+    durationSeconds: 8,
+    tutorialTitle: "Seated toe point without heel raise",
+    tutorialBody:
+      "Sit in a chair and lift the tested foot slightly off the floor. Point the toes down as far as comfortable while the shank stays visible. The system reads the shank-to-foot angle.",
+    safetyNote:
+      "Do not perform a standing heel raise. This task should stay seated to avoid fall risk.",
+    silhouette: "side-chair",
+    icon: Footprints,
+    symptomQuestions: [
+      { bodyPartId: "ankle", bodyPartLabel: "Ankle", options: commonJointOptions },
+      { bodyPartId: "foot", bodyPartLabel: "Foot", options: commonJointOptions },
+      { bodyPartId: "calf", bodyPartLabel: "Calf", options: commonJointOptions },
     ],
   },
 ];
@@ -143,13 +195,17 @@ export const movementTaskMap = movementTasks.reduce(
     acc[task.id] = task;
     return acc;
   },
-  {} as Record<PatientMovementType, MovementTask>,
+  {} as Partial<Record<PatientMovementType, MovementTask>>,
 );
 
 export function getMovementTask(taskId: string | null | undefined) {
   if (taskId && taskId in movementTaskMap) {
-    return movementTaskMap[taskId as PatientMovementType];
+    return movementTaskMap[taskId as PatientMovementType] ?? movementTasks[0];
   }
 
   return movementTasks[0];
+}
+
+export function getMovementTaskLabel(taskId: PatientMovementType) {
+  return movementTaskMap[taskId]?.label ?? legacyMovementTaskLabels[taskId] ?? taskId.replace(/_/g, " ");
 }

@@ -27,6 +27,7 @@ export function LatestSessionCard({ session }: LatestSessionCardProps) {
   const navigate = useNavigate();
   const status = statusLabels[session.status];
   const recordedCount = session.tasks.filter((task) => task.status === "recorded").length;
+  const totalCount = session.tasks.length;
   const qualityScores = session.tasks
     .map((task) => task.quality?.qualityScore)
     .filter((score): score is number => typeof score === "number");
@@ -51,7 +52,7 @@ export function LatestSessionCard({ session }: LatestSessionCardProps) {
               </p>
               <p className="flex items-center gap-1.5 text-xs text-slate-500">
                 <Video className="h-3.5 w-3.5" />
-                {recordedCount}/4 วิดีโอ
+                {recordedCount}/{totalCount} วิดีโอ
               </p>
             </div>
           </div>

@@ -1,8 +1,15 @@
 export type PatientMovementType =
+  | "hip_flexion"
+  | "hip_extension"
+  | "knee_flexion"
+  | "knee_extension"
+  | "ankle_dorsiflexion"
+  | "ankle_plantarflexion"
   | "gait_walk"
   | "sit_to_stand"
   | "single_leg_stance"
-  | "shoulder_flexion";
+  | "shoulder_flexion"
+  | "stair_task";
 
 export type PatientSessionStatus =
   | "draft"
@@ -15,6 +22,7 @@ export type PatientSessionStatus =
   | "analysis_failed";
 
 export type PatientSessionTaskStatus = "not_started" | "recorded" | "needs_retake";
+export type PatientAnalysisStatus = "not_started" | "processing" | "completed" | "failed";
 
 export type PatientViewType = "front" | "side" | "front_and_side";
 
@@ -98,6 +106,9 @@ export type PatientSessionTask = {
   fileId?: string;
   videoUrl?: string;
   fileName?: string;
+  analysisStatus?: PatientAnalysisStatus;
+  analysisError?: string | null;
+  analysisResultId?: string;
   note?: string;
   symptomReport?: PatientSymptomReport;
   quality?: PatientQualityGate;
@@ -112,6 +123,7 @@ export type PatientSession = {
   status: PatientSessionStatus;
   createdAt: string;
   submittedAt?: string;
+  analysisJobId?: string;
   tasks: PatientSessionTask[];
   feedback?: DoctorFeedback;
 };

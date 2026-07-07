@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.services.movement_tasks import all_tasks_recorded, create_empty_tasks
+from app.services.movement_tasks import all_tasks_recorded, create_empty_tasks, uses_active_task_protocol
 
 
 def utc_now() -> str:
@@ -17,6 +17,15 @@ def new_id(prefix: str) -> str:
 async def get_or_create_draft_session(db: AsyncIOMotorDatabase, patient_id: str, patient_name: str) -> dict:
     session = await db.sessions.find_one({"patientId": patient_id, "status": {"$in": ["draft", "ready_to_submit"]}})
     if session:
+        if not uses_active_task_protocol(session.get("tasks", [])):
+            now = utc_now()
+            session["tasks"] = create_empty_tasks()
+            session["status"] = "draft"
+            session["updatedAt"] = now
+            await db.sessions.update_one(
+                {"sessionId": session["sessionId"]},
+                {"$set": {"tasks": session["tasks"], "status": session["status"], "updatedAt": now}},
+            )
         session.pop("_id", None)
         return session
 

@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronRight, Send, UserRound } from "lucide-react";
+import { Activity, CheckCircle2, ChevronRight, LogOut, Send, UserRound } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/Badge";
@@ -11,11 +11,11 @@ import {
   getPatientDraftSession,
   submitPatientSession,
 } from "@/features/patient/api/patientApi";
-import { demoPatient } from "@/features/patient/data/patient.mock";
-import { movementTaskMap } from "@/features/patient/data/movementTasks";
+import { getMovementTaskLabel, movementTaskMap } from "@/features/patient/data/movementTasks";
 import { FeedbackCard } from "@/features/patient/components/FeedbackCard";
 import { LatestSessionCard } from "@/features/patient/components/LatestSessionCard";
 import { MobileScreen } from "@/features/patient/components/MobileScreen";
+import { clearBackendAuthToken } from "@/lib/backendApi";
 
 export function PatientHomePage() {
   const navigate = useNavigate();
@@ -42,29 +42,56 @@ export function PatientHomePage() {
   });
 
   const draft = draftQuery.data;
+  const latestSession = sessionQuery.data;
   const completedCount = draft?.tasks.filter((task) => task.status === "recorded").length ?? 0;
-  const totalCount = draft?.tasks.length ?? 4;
-  const isReadyToSubmit = completedCount === totalCount;
+  const totalCount = draft?.tasks.length ?? latestSession?.tasks.length ?? 0;
+  const progressValue = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+  const isReadyToSubmit = totalCount > 0 && completedCount === totalCount;
+  const patientLabel = draft?.patientId ?? latestSession?.patientId ?? "ผู้ป่วยทดลอง";
+
+  function handleLogout() {
+    clearBackendAuthToken();
+    queryClient.removeQueries({ queryKey: ["patient"] });
+    navigate("/patient/login", {
+      replace: true,
+      state: { message: "ออกจากระบบเรียบร้อยแล้ว" },
+    });
+  }
 
   return (
     <MobileScreen>
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
-            <UserRound className="h-6 w-6" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm text-slate-500">สวัสดีครับ</p>
-            <h1 className="truncate text-xl font-semibold text-slate-950">
-              Patient ID: {demoPatient.id}
-            </h1>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
+              <UserRound className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 sm:text-sm">
+                สวัสดีครับ
+              </p>
+              <h1 className="truncate text-base font-semibold text-slate-950 sm:text-xl">
+                Patient ID: {patientLabel}
+              </h1>
+            </div>
           </div>
+          <Button
+            aria-label="ออกจากระบบ"
+            className="h-10 w-10 shrink-0 rounded-full sm:h-9 sm:w-9"
+            icon={<LogOut className="h-4 w-4" />}
+            onClick={handleLogout}
+            size="icon"
+            variant="outline"
+            title="ออกจากระบบ"
+          >
+            <span className="sr-only">ออกจากระบบ</span>
+          </Button>
         </div>
 
         <div className="rounded-lg border border-cyan-100 bg-cyan-50 px-4 py-3">
-          <p className="text-sm font-semibold text-cyan-950">Assessment Session ปัจจุบัน</p>
+          <p className="text-sm font-semibold text-cyan-950">สถานะ Session ปัจจุบัน</p>
           <p className="mt-1 text-xs leading-5 text-cyan-800">
-            บันทึกให้ครบทั้ง 4 ท่าใน session เดียว ระบบจะเก็บเป็น draft ก่อน แล้วค่อยส่งให้แพทย์ตรวจเมื่อครบทั้งหมด
+            บันทึกให้ครบทั้ง {totalCount || "ทุก"} ท่าใน session เดียว ระบบจะเก็บเป็น draft ก่อน แล้วค่อยส่งให้แพทย์ตรวจเมื่อครบทั้งหมด
           </p>
         </div>
       </div>
@@ -73,10 +100,11 @@ export function PatientHomePage() {
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <ProgressBar
             label={`${completedCount}/${totalCount} ท่าเสร็จแล้ว`}
-            value={(completedCount / totalCount) * 100}
+            value={progressValue}
           />
           <Button
             className="mt-4 h-12 w-full bg-emerald-700 hover:bg-emerald-800 focus-visible:ring-emerald-600"
+            data-testid="patient-submit-session"
             disabled={!isReadyToSubmit || submitMutation.isPending}
             icon={<Send className="h-4 w-4" />}
             onClick={() => submitMutation.mutate()}
@@ -85,20 +113,32 @@ export function PatientHomePage() {
           >
             {submitMutation.isPending ? "กำลังส่ง session..." : "ส่ง Session ให้แพทย์"}
           </Button>
+          {submitMutation.isError ? (
+            <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {submitMutation.error instanceof Error
+                ? submitMutation.error.message
+                : "ไม่สามารถส่ง session นี้ได้ กรุณาลองอีกครั้ง"}
+            </p>
+          ) : null}
         </div>
 
-        {draftQuery.isLoading ? (
-          <LoadingSpinner label="กำลังโหลด session draft" />
+        {draftQuery.isError ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            โหลด draft session ไม่ได้ กรุณาตรวจสอบว่า MongoDB และ backend ทำงานอยู่
+          </p>
+        ) : draftQuery.isLoading ? (
+          <LoadingSpinner label="กำลังโหลด draft session" />
         ) : (
           <div className="grid grid-cols-1 gap-3">
             {draft?.tasks.map((sessionTask) => {
               const task = movementTaskMap[sessionTask.movementType];
-              const TaskIcon = task.icon;
+              const TaskIcon = task?.icon ?? Activity;
               const recorded = sessionTask.status === "recorded";
 
               return (
                 <button
                   className="group rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50/50"
+                  data-testid={`patient-task-${sessionTask.movementType}`}
                   key={sessionTask.movementType}
                   onClick={() => navigate(`/patient/tutorial?task=${sessionTask.movementType}`)}
                   type="button"
@@ -109,18 +149,22 @@ export function PatientHomePage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-950">{task.label}</p>
+                        <p className="text-sm font-semibold text-slate-950">
+                          {task?.label ?? getMovementTaskLabel(sessionTask.movementType)}
+                        </p>
                         <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                       </div>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">{task.description}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        {task?.description ?? "ท่านี้มาจาก protocol เดิมของระบบ"}
+                      </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Badge tone={recorded ? "green" : "slate"}>
                           {recorded ? "บันทึกแล้ว" : "ยังไม่เริ่ม"}
                         </Badge>
-                        <Badge tone="cyan">{task.durationSeconds} วินาที</Badge>
+                        {task ? <Badge tone="cyan">{task.durationSeconds} วินาที</Badge> : null}
                         {sessionTask.quality ? (
                           <Badge tone={sessionTask.quality.qualityScore >= 90 ? "green" : "yellow"}>
-                            Quality {sessionTask.quality.qualityScore}
+                            คุณภาพ {sessionTask.quality.qualityScore}
                           </Badge>
                         ) : null}
                         {sessionTask.fileName ? <Badge tone="blue">{sessionTask.fileName}</Badge> : null}
@@ -139,7 +183,11 @@ export function PatientHomePage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-900">Session ล่าสุดที่ส่งแล้ว</h2>
-        {sessionQuery.isLoading ? (
+        {sessionQuery.isError ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            โหลด session ล่าสุดไม่สำเร็จ
+          </p>
+        ) : sessionQuery.isLoading ? (
           <LoadingSpinner label="กำลังโหลด session" />
         ) : sessionQuery.data ? (
           <LatestSessionCard session={sessionQuery.data} />
@@ -152,7 +200,11 @@ export function PatientHomePage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-900">Feedback จากแพทย์</h2>
-        {feedbackQuery.isLoading ? (
+        {feedbackQuery.isError ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            โหลด feedback ล่าสุดไม่สำเร็จ
+          </p>
+        ) : feedbackQuery.isLoading ? (
           <LoadingSpinner label="กำลังโหลด feedback" />
         ) : feedbackQuery.data ? (
           <FeedbackCard feedback={feedbackQuery.data} />

@@ -24,6 +24,7 @@ export function UploadVideoBox({ fileName, error, onChange }: UploadVideoBoxProp
         <input
           accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
           className="sr-only"
+          data-testid="patient-video-upload"
           onChange={handleChange}
           type="file"
         />
