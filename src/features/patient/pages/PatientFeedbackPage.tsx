@@ -37,7 +37,7 @@ export function PatientFeedbackPage() {
   // --- Loading state ---
   if (feedbackQuery.isLoading) {
     return (
-      <MobileScreen backTo="/patient/home" title="Feedback จากแพทย์">
+      <MobileScreen backTo="/patient" title="Feedback จากแพทย์">
         <LoadingSpinner label="กำลังโหลด feedback" />
       </MobileScreen>
     );
@@ -46,7 +46,7 @@ export function PatientFeedbackPage() {
   // --- Backend error state ---
   if (feedbackQuery.isError) {
     return (
-      <MobileScreen backTo="/patient/home" title="Feedback จากแพทย์">
+      <MobileScreen backTo="/patient" title="Feedback จากแพทย์">
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4">
           <p className="text-sm font-semibold text-rose-900">เกิดข้อผิดพลาด</p>
           <p className="mt-1 text-xs leading-5 text-rose-800">
@@ -56,7 +56,7 @@ export function PatientFeedbackPage() {
         <Button
           className="h-12 w-full"
           icon={<Home className="h-4 w-4" />}
-          onClick={() => navigate("/patient/home")}
+          onClick={() => navigate("/patient")}
           size="lg"
           variant="outline"
         >
@@ -70,7 +70,7 @@ export function PatientFeedbackPage() {
   if (!feedback) {
     return (
       <MobileScreen
-        backTo="/patient/home"
+        backTo="/patient"
         subtitle="แผนดูแลตัวเองหลังแพทย์ตรวจ movement session"
         title="Feedback จากแพทย์"
       >
@@ -87,7 +87,7 @@ export function PatientFeedbackPage() {
           <Button
             className="h-12 w-full"
             icon={<Home className="h-4 w-4" />}
-            onClick={() => navigate("/patient/home")}
+            onClick={() => navigate("/patient")}
             size="lg"
             variant="outline"
           >
@@ -100,7 +100,7 @@ export function PatientFeedbackPage() {
 
   return (
     <MobileScreen
-      backTo="/patient/home"
+      backTo="/patient"
       subtitle="แผนดูแลตัวเองหลังแพทย์ตรวจ movement session"
       title="Feedback จากแพทย์"
     >
@@ -221,7 +221,7 @@ export function PatientFeedbackPage() {
         <Button
           className="h-12 w-full bg-cyan-700 hover:bg-cyan-800 focus-visible:ring-cyan-600"
           icon={<Home className="h-4 w-4" />}
-          onClick={() => navigate("/patient/home")}
+          onClick={() => navigate("/patient")}
           size="lg"
         >
           กลับหน้าหลัก

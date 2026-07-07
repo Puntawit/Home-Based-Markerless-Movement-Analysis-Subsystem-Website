@@ -21,8 +21,9 @@ Before changing code, read this file, then read the relevant Markdown docs such 
 
 Patient flow:
 
-- `/patient/login` -> `src/features/patient/pages/PatientLoginPage.tsx`. Handles demo patient login through `mockLogin()` in `src/features/patient/api/patientApi.ts`.
-- `/patient/home` -> `PatientHomePage.tsx`. Shows draft task progress, latest submitted session, latest feedback, and submit button. Edit this for patient dashboard/task list behavior.
+- `/` -> `src/app/LandingPage.tsx`. First screen with only patient/doctor role selection buttons.
+- `/auth/login?type=patient` and `/auth/login?type=doctor` -> `src/app/AuthLoginPage.tsx`. Shared role-aware login screen. Patient login calls `mockLogin()` in `src/features/patient/api/patientApi.ts`; doctor login uses `loginDoctorDemo()` from `src/lib/backendApi.ts`.
+- `/patient` -> `PatientHomePage.tsx`. Shows draft task progress, latest submitted session, latest feedback, and submit button. Edit this for patient dashboard/task list behavior.
 - `/patient/tutorial?task=<task_id>` -> `PatientTutorialPage.tsx`. Reads task data from `src/features/patient/data/movementTasks.ts`. Edit this for task instructions, tutorial copy, or pre-record guidance.
 - `/patient/record?task=<task_id>` -> `PatientRecordPage.tsx`. Handles webcam access, countdown, `MediaRecorder`, upload fallback, video preview, symptom report, quality checklist, and task saving.
 - `/patient/status` -> `PatientStatusPage.tsx`. Displays analysis/review status after submission.
@@ -30,8 +31,7 @@ Patient flow:
 
 Doctor flow:
 
-- `/doctor/login` -> `src/features/doctor/pages/DoctorLoginPage.tsx`. Uses demo doctor login from `src/lib/backendApi.ts`.
-- `/doctor/dashboard` -> `DoctorDashboardPage.tsx`. Shows backend-backed patient/session list, selected task video, risk flags, metrics, analysis retry, and feedback form. API mapping is in `src/features/doctor/api/doctorApi.ts`; mock type shapes still live in `src/features/doctor/data/doctor.mock.ts`.
+- `/doctor` -> `DoctorDashboardPage.tsx`. Shows backend-backed patient/session list, selected task video, risk flags, metrics, analysis retry, and feedback form. API mapping is in `src/features/doctor/api/doctorApi.ts`; mock type shapes still live in `src/features/doctor/data/doctor.mock.ts`.
 
 Admin flow:
 
@@ -108,6 +108,20 @@ Recent commits use short imperative messages such as `add backend` and `edit vid
 Copy `backend/.env.example` to `backend/.env` for local setup. Do not commit real secrets, plaintext admin passwords, patient health data, raw videos, local upload folders, `.env`, `node_modules/`, `dist/`, or `.venv/`. Local upload storage is for demo only.
 
 ## Current Work Log
+
+- Added `src/app/LandingPage.tsx`: created the simple root landing page with only two large role-selection buttons for patient and doctor.
+- Added `src/app/AuthLoginPage.tsx`: created a shared `/auth/login?type=patient|doctor` login page that switches the form and destination by query param.
+- Changed `src/app/router.tsx` and `src/app/ProtectedRoute.tsx`: made `/patient` the protected patient home route, `/doctor` the protected doctor dashboard route, routed old login/dashboard paths to the new structure, and sent unauthenticated users to the shared login page.
+- Deleted `src/features/patient/pages/PatientLoginPage.tsx`, `src/features/doctor/pages/DoctorLoginPage.tsx`, and `src/app/RoleEntryRoute.tsx`: removed the split login pages and the old entry redirect helper.
+- Changed patient/doctor navigation files and `tests/e2e/specs/ui-flow.spec.ts`: updated logout, back links, save redirects, and E2E URLs to use `/patient`, `/doctor`, and `/auth/login?type=...`.
+- Changed `PROJECT_FLOW_FOR_AI.md` and `AGENTS.md`: updated route documentation for the new landing/login structure.
+- Current progress: the login flow is unified, mobile-first, and role-protected; `npm.cmd run build` passes.
+- Remaining work: full `npm run test:e2e` was not run because it requires Docker Desktop/daemon.
+
+- Changed `src/features/patient/pages/PatientHomePage.tsx`: hid the progress percentage value on the patient home progress bar so the page no longer shows `%`.
+- Changed `AGENTS.md`: recorded the patient home percentage cleanup.
+- Current progress: the patient home progress bar still shows progress visually, but the numeric `%` text is hidden on that page.
+- Remaining work: none for this task; a build check is still recommended.
 
 - Changed `src/features/patient/pages/PatientHomePage.tsx` and `src/features/doctor/pages/DoctorDashboardPage.tsx`: made the logout controls icon-only and more mobile-friendly, and reduced the prominence of the patient identifier text on small screens.
 - Changed `AGENTS.md`: recorded the responsive logout button pass.

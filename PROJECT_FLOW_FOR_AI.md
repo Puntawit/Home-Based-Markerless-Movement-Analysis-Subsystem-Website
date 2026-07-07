@@ -34,15 +34,15 @@ Main routes:
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Redirects to `/patient/login` |
-| `/patient/login` | Mock patient login |
-| `/patient/home` | Patient home and current draft session |
+| `/` | Simple role selection landing page |
+| `/auth/login?type=patient` | Patient login |
+| `/auth/login?type=doctor` | Doctor login |
+| `/patient` | Patient home and current draft session |
 | `/patient/tutorial` | Tutorial before recording a movement task |
 | `/patient/record` | Camera setup, recording/upload, review, symptom report, save task |
 | `/patient/status` | Session processing and review status |
 | `/patient/feedback` | Patient-facing doctor feedback |
-| `/doctor/login` | Demo doctor login |
-| `/doctor/dashboard` | Doctor review dashboard |
+| `/doctor` | Doctor review dashboard |
 | `/admin/login` | Admin password login |
 | `/admin/dashboard` | Admin users, videos, feedback, and payload console |
 
@@ -115,14 +115,16 @@ Each task includes:
 File:
 
 ```text
-src/features/patient/pages/PatientLoginPage.tsx
+src/app/AuthLoginPage.tsx
 ```
 
-The login page calls `mockLogin()` from `patientApi.ts`. It does not validate real credentials. On success, it navigates to:
+The shared login page reads `type=patient` or `type=doctor` from the query string. Patient login calls `mockLogin()` from `patientApi.ts`; doctor login uses the demo doctor login helper. On success, patient users navigate to:
 
 ```text
-/patient/home
+/patient
 ```
+
+Doctor users navigate to `/doctor`.
 
 ### 2. Patient Home
 
@@ -252,7 +254,7 @@ savePatientSessionTask()
 After saving, TanStack Query invalidates the draft session query and navigates back to:
 
 ```text
-/patient/home
+/patient
 ```
 
 ### 5. Submit Session

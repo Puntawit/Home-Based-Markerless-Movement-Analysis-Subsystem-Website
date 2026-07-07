@@ -35,7 +35,7 @@ export function PatientStatusPage() {
   // --- Loading state ---
   if (sessionQuery.isLoading) {
     return (
-      <MobileScreen backTo="/patient/home" title="สถานะการประมวลผล">
+      <MobileScreen backTo="/patient" title="สถานะการประมวลผล">
         <LoadingSpinner label="กำลังโหลดสถานะ" />
       </MobileScreen>
     );
@@ -44,7 +44,7 @@ export function PatientStatusPage() {
   // --- Backend error state ---
   if (sessionQuery.isError) {
     return (
-      <MobileScreen backTo="/patient/home" title="สถานะการประมวลผล">
+      <MobileScreen backTo="/patient" title="สถานะการประมวลผล">
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4">
           <p className="text-sm font-semibold text-rose-900">เกิดข้อผิดพลาด</p>
           <p className="mt-1 text-xs leading-5 text-rose-800">
@@ -54,7 +54,7 @@ export function PatientStatusPage() {
         <Button
           className="h-12 w-full"
           icon={<Home className="h-4 w-4" />}
-          onClick={() => navigate("/patient/home")}
+          onClick={() => navigate("/patient")}
           size="lg"
           variant="outline"
         >
@@ -67,7 +67,7 @@ export function PatientStatusPage() {
   // --- No submitted session yet ---
   if (!sessionQuery.data) {
     return (
-      <MobileScreen backTo="/patient/home" title="สถานะการประมวลผล">
+      <MobileScreen backTo="/patient" title="สถานะการประมวลผล">
         <div className="flex flex-col items-center justify-center gap-4 py-8 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
             <Video className="h-8 w-8 text-slate-400" />
@@ -81,7 +81,7 @@ export function PatientStatusPage() {
           <Button
             className="h-12 w-full bg-cyan-700 hover:bg-cyan-800 focus-visible:ring-cyan-600"
             icon={<Home className="h-4 w-4" />}
-            onClick={() => navigate("/patient/home")}
+            onClick={() => navigate("/patient")}
             size="lg"
           >
             กลับหน้าหลัก
@@ -104,7 +104,7 @@ export function PatientStatusPage() {
 
   return (
     <MobileScreen
-      backTo="/patient/home"
+      backTo="/patient"
       subtitle={`${session.patientId} | ${taskCount} วิดีโอ`}
       title="สถานะการประมวลผล"
     >
@@ -199,7 +199,7 @@ export function PatientStatusPage() {
         <Button
           className="h-11 w-full"
           icon={<Home className="h-4 w-4" />}
-          onClick={() => navigate("/patient/home")}
+          onClick={() => navigate("/patient")}
           size="lg"
           variant="outline"
         >

@@ -52,7 +52,7 @@ export function PatientHomePage() {
   function handleLogout() {
     clearBackendAuthToken();
     queryClient.removeQueries({ queryKey: ["patient"] });
-    navigate("/patient/login", {
+    navigate("/auth/login?type=patient", {
       replace: true,
       state: { message: "ออกจากระบบเรียบร้อยแล้ว" },
     });
@@ -100,6 +100,7 @@ export function PatientHomePage() {
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <ProgressBar
             label={`${completedCount}/${totalCount} ท่าเสร็จแล้ว`}
+            valueLabel=""
             value={progressValue}
           />
           <Button

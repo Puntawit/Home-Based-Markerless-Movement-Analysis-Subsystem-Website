@@ -133,7 +133,7 @@ export function DoctorDashboardPage() {
 
     clearDoctorBackendAuthToken();
     queryClient.removeQueries({ queryKey: ["doctor"] });
-    navigate("/doctor/login", {
+    navigate("/auth/login?type=doctor", {
       replace: true,
       state: { message: "Your doctor session expired. Please sign in again." },
     });
@@ -219,7 +219,7 @@ export function DoctorDashboardPage() {
   function handleLogout() {
     clearDoctorBackendAuthToken();
     queryClient.removeQueries({ queryKey: ["doctor"] });
-    navigate("/doctor/login", {
+    navigate("/auth/login?type=doctor", {
       replace: true,
       state: { message: "ออกจากระบบเรียบร้อยแล้ว" },
     });
@@ -241,7 +241,7 @@ export function DoctorDashboardPage() {
           tone="rose"
           title="Doctor sessions could not be loaded"
           body={errorMessage}
-          actionHref="/doctor/login"
+          actionHref="/auth/login?type=doctor"
           actionLabel="Go to doctor login"
         />
       </DoctorShell>

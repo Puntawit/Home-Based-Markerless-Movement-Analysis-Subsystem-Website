@@ -449,7 +449,7 @@ export function PatientRecordPage() {
     mutationFn: savePatientSessionTask,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["patient", "draft-session"] });
-      navigate("/patient/home");
+      navigate("/patient");
     },
     onError: (mutationError) => {
       setSaveProgress(0);

@@ -10,9 +10,9 @@ const movementTypes = [
 ];
 
 test("browser flow covers patient upload, doctor feedback, and admin review", async ({ page }) => {
-  await page.goto("/patient/login");
+  await page.goto("/auth/login?type=patient");
   await page.getByTestId("patient-login-submit").click();
-  await expect(page).toHaveURL(/\/patient\/home$/);
+  await expect(page).toHaveURL(/\/patient$/);
 
   for (const movementType of movementTypes) {
     await page.getByTestId(`patient-task-${movementType}`).click();
@@ -25,16 +25,16 @@ test("browser flow covers patient upload, doctor feedback, and admin review", as
       name: `${movementType}.webm`,
     });
     await page.getByTestId("patient-save-task").click();
-    await expect(page).toHaveURL(/\/patient\/home$/);
+    await expect(page).toHaveURL(/\/patient$/);
   }
 
   await expect(page.getByTestId("patient-submit-session")).toBeEnabled();
   await page.getByTestId("patient-submit-session").click();
   await expect(page).toHaveURL(/\/patient\/status$/);
 
-  await page.goto("/doctor/login");
+  await page.goto("/auth/login?type=doctor");
   await page.getByTestId("doctor-login-submit").click();
-  await expect(page).toHaveURL(/\/doctor\/dashboard$/);
+  await expect(page).toHaveURL(/\/doctor$/);
   await expect(page.getByTestId("doctor-dashboard")).toBeVisible();
   await expect(page.getByText("PATIENT-7712").first()).toBeVisible();
   await page.getByTestId("doctor-feedback-patient-summary").fill("UI E2E patient summary");

@@ -1,23 +1,17 @@
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AuthLoadingScreen } from "@/app/AuthLoadingScreen";
-import { RoleEntryRoute } from "@/app/RoleEntryRoute";
+import { AuthLoginPage } from "@/app/AuthLoginPage";
+import { LandingPage } from "@/app/LandingPage";
 import { ProtectedRoute } from "@/app/ProtectedRoute";
 import { PatientLayout } from "@/features/patient/components/PatientLayout";
 import { PatientHomePage } from "@/features/patient/pages/PatientHomePage";
-import { PatientLoginPage } from "@/features/patient/pages/PatientLoginPage";
 import { PatientStatusPage } from "@/features/patient/pages/PatientStatusPage";
 import { PatientTutorialPage } from "@/features/patient/pages/PatientTutorialPage";
 
 const DoctorDashboardPage = lazy(() =>
   import("@/features/doctor/pages/DoctorDashboardPage").then((module) => ({
     default: module.DoctorDashboardPage,
-  })),
-);
-
-const DoctorLoginPage = lazy(() =>
-  import("@/features/doctor/pages/DoctorLoginPage").then((module) => ({
-    default: module.DoctorLoginPage,
   })),
 );
 
@@ -51,29 +45,29 @@ const AdminPatientsPage = lazy(() =>
   })),
 );
 
+const pageLoading = <AuthLoadingScreen message="กำลังโหลดหน้า..." />;
+
 export const router = createBrowserRouter([
-  { path: "/", element: <Navigate to="/patient" replace /> },
+  { path: "/", element: <LandingPage /> },
+  { path: "/auth/login", element: <AuthLoginPage /> },
   {
     path: "/patient",
     element: <PatientLayout />,
     children: [
       {
         index: true,
-        element: <RoleEntryRoute loginPath="/patient/login" role="patient" successPath="/patient/home" />,
-      },
-      { path: "login", element: <PatientLoginPage /> },
-      {
-        path: "home",
         element: (
-          <ProtectedRoute loginPath="/patient/login" role="patient">
+          <ProtectedRoute loginPath="/auth/login?type=patient" role="patient">
             <PatientHomePage />
           </ProtectedRoute>
         ),
       },
+      { path: "login", element: <Navigate replace to="/auth/login?type=patient" /> },
+      { path: "home", element: <Navigate replace to="/patient" /> },
       {
         path: "tutorial",
         element: (
-          <ProtectedRoute loginPath="/patient/login" role="patient">
+          <ProtectedRoute loginPath="/auth/login?type=patient" role="patient">
             <PatientTutorialPage />
           </ProtectedRoute>
         ),
@@ -81,8 +75,8 @@ export const router = createBrowserRouter([
       {
         path: "record",
         element: (
-          <ProtectedRoute loginPath="/patient/login" role="patient">
-            <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
+          <ProtectedRoute loginPath="/auth/login?type=patient" role="patient">
+            <Suspense fallback={pageLoading}>
               <PatientRecordPage />
             </Suspense>
           </ProtectedRoute>
@@ -91,7 +85,7 @@ export const router = createBrowserRouter([
       {
         path: "status",
         element: (
-          <ProtectedRoute loginPath="/patient/login" role="patient">
+          <ProtectedRoute loginPath="/auth/login?type=patient" role="patient">
             <PatientStatusPage />
           </ProtectedRoute>
         ),
@@ -99,8 +93,8 @@ export const router = createBrowserRouter([
       {
         path: "feedback",
         element: (
-          <ProtectedRoute loginPath="/patient/login" role="patient">
-            <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
+          <ProtectedRoute loginPath="/auth/login?type=patient" role="patient">
+            <Suspense fallback={pageLoading}>
               <PatientFeedbackPage />
             </Suspense>
           </ProtectedRoute>
@@ -110,31 +104,21 @@ export const router = createBrowserRouter([
   },
   {
     path: "/doctor",
-    element: <RoleEntryRoute loginPath="/doctor/login" role="doctor" successPath="/doctor/dashboard" />,
-  },
-  {
-    path: "/doctor/login",
     element: (
-      <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
-        <DoctorLoginPage />
-      </Suspense>
-    ),
-  },
-  {
-    path: "/doctor/dashboard",
-    element: (
-      <ProtectedRoute loginPath="/doctor/login" role="doctor">
-        <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
+      <ProtectedRoute loginPath="/auth/login?type=doctor" role="doctor">
+        <Suspense fallback={pageLoading}>
           <DoctorDashboardPage />
         </Suspense>
       </ProtectedRoute>
     ),
   },
+  { path: "/doctor/login", element: <Navigate replace to="/auth/login?type=doctor" /> },
+  { path: "/doctor/dashboard", element: <Navigate replace to="/doctor" /> },
   { path: "/admin", element: <Navigate to="/admin/login" replace /> },
   {
     path: "/admin/login",
     element: (
-      <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
+      <Suspense fallback={pageLoading}>
         <AdminLoginPage />
       </Suspense>
     ),
@@ -143,7 +127,7 @@ export const router = createBrowserRouter([
     path: "/admin/dashboard",
     element: (
       <ProtectedRoute loginPath="/admin/login" role="admin">
-        <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
+        <Suspense fallback={pageLoading}>
           <AdminDashboardPage />
         </Suspense>
       </ProtectedRoute>
@@ -153,11 +137,11 @@ export const router = createBrowserRouter([
     path: "/admin/patients",
     element: (
       <ProtectedRoute loginPath="/admin/login" role="admin">
-        <Suspense fallback={<AuthLoadingScreen message="กำลังโหลดหน้า..." />}>
+        <Suspense fallback={pageLoading}>
           <AdminPatientsPage />
         </Suspense>
       </ProtectedRoute>
     ),
   },
-  { path: "*", element: <Navigate to="/patient" replace /> },
+  { path: "*", element: <Navigate to="/" replace /> },
 ]);

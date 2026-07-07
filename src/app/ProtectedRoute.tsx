@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { AuthLoadingScreen } from "@/app/AuthLoadingScreen";
 import { useValidatedRoleSession } from "@/app/useValidatedRoleSession";
+import type { AuthRole } from "@/lib/backendApi";
 
 type ProtectedRouteProps = {
   children: ReactNode;
   loginPath: string;
-  role: "admin" | "doctor" | "patient";
+  role: AuthRole;
 };
 
 export function ProtectedRoute({ children, loginPath, role }: ProtectedRouteProps) {
@@ -21,7 +22,7 @@ export function ProtectedRoute({ children, loginPath, role }: ProtectedRouteProp
     return (
       <Navigate
         replace
-        state={{ from: location.pathname, message: "Please sign in before continuing." }}
+        state={{ from: location.pathname, message: "กรุณาเข้าสู่ระบบก่อนใช้งานหน้านี้" }}
         to={loginPath}
       />
     );
