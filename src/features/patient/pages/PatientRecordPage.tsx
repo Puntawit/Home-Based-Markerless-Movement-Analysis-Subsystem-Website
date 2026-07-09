@@ -56,6 +56,7 @@ export function PatientRecordPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const task = getMovementTask(searchParams.get("task"));
+  const sessionTaskId = searchParams.get("sessionTaskId") ?? undefined;
   const liveVideoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -510,6 +511,7 @@ export function PatientRecordPage() {
     saveTaskMutation.mutate({
       file: selectedFile,
       movementType: task.id,
+      sessionTaskId,
       videoUrl: previewUrl,
       fileName: selectedFile.name,
       view: task.view,
@@ -530,7 +532,7 @@ export function PatientRecordPage() {
 
   return (
     <MobileScreen
-      backTo={`/patient/tutorial?task=${task.id}`}
+      backTo={`/patient/tutorial?task=${task.id}${sessionTaskId ? `&sessionTaskId=${sessionTaskId}` : ""}`}
       subtitle={task.label}
       title={
         phase === "preflight"

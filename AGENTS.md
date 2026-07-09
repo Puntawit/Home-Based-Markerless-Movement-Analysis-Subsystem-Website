@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository is a movement-analysis demo for home rehabilitation. The frontend is React/Vite/TypeScript in `src/`; the backend is FastAPI/MongoDB in `backend/app/`. The active product flow is: patient logs in, records or uploads 6 lower-limb ROM task videos, submits a session, backend runs MediaPipe analysis jobs, doctor reviews results and sends feedback, patient reads feedback, and admin monitors users/system data.
+This repository is a movement-analysis demo for home rehabilitation. The frontend is React/Vite/TypeScript in `src/`; the backend is FastAPI/MongoDB in `backend/app/`. The active product flow is: doctor creates/assigns a patient recording session, patient logs in and records or uploads the assigned lower-limb ROM task videos, patient submits the session, backend runs MediaPipe analysis jobs, doctor reviews results and sends feedback, patient reads feedback, and admin monitors users/system data.
 
 ## Agent Workflow
 
@@ -23,7 +23,7 @@ Patient flow:
 
 - `/` -> `src/app/LandingPage.tsx`. First screen with only patient/doctor role selection buttons.
 - `/auth/login?type=patient` and `/auth/login?type=doctor` -> `src/app/AuthLoginPage.tsx`. Shared role-aware login screen. Patient login calls `mockLogin()` in `src/features/patient/api/patientApi.ts`; doctor login uses `loginDoctorDemo()` from `src/lib/backendApi.ts`.
-- `/patient` -> `PatientHomePage.tsx`. Shows draft task progress, latest submitted session, latest feedback, and submit button. Edit this for patient dashboard/task list behavior.
+- `/patient` -> `PatientHomePage.tsx`. Shows the active doctor-assigned session only, latest submitted session, latest feedback, and submit button. If there is no active assigned session, it shows an empty state instead of creating a draft. Edit this for patient dashboard/task list behavior.
 - `/patient/tutorial?task=<task_id>` -> `PatientTutorialPage.tsx`. Reads task data from `src/features/patient/data/movementTasks.ts`. Edit this for task instructions, tutorial copy, or pre-record guidance.
 - `/patient/record?task=<task_id>` -> `PatientRecordPage.tsx`. Handles webcam access, countdown, `MediaRecorder`, upload fallback, video preview, symptom report, quality checklist, and task saving.
 - `/patient/status` -> `PatientStatusPage.tsx`. Displays analysis/review status after submission.
@@ -31,7 +31,7 @@ Patient flow:
 
 Doctor flow:
 
-- `/doctor` -> `DoctorDashboardPage.tsx`. Shows backend-backed patient/session list, selected task video, risk flags, metrics, analysis retry, and feedback form. API mapping is in `src/features/doctor/api/doctorApi.ts`; mock type shapes still live in `src/features/doctor/data/doctor.mock.ts`.
+- `/doctor` -> `DoctorDashboardPage.tsx`. Shows backend-backed assigned patients/session list, Add Session form, selected task video, risk flags, metrics, analysis retry, and feedback form. API mapping is in `src/features/doctor/api/doctorApi.ts`; mock type shapes still live in `src/features/doctor/data/doctor.mock.ts`.
 
 Admin flow:
 
@@ -57,8 +57,8 @@ Legacy/prototype areas:
 
 - `routers/auth.py`: `POST /auth/mock-login`, `POST /auth/admin-login`, and `GET /auth/me`. Edit for login behavior, demo users, or auth response shape.
 - `routers/uploads.py`: `POST /uploads/video`, `POST /uploads/video/{file_id}/playback-token`, and `GET /uploads/video/{file_id}`. Edit for upload validation, quotas, local storage, streaming, and secure playback.
-- `routers/patient.py`: draft session, save task, submit session, latest session, and latest feedback endpoints under `/patient`.
-- `routers/doctor.py`: doctor session list/detail and feedback submission under `/doctor`.
+- `routers/patient.py`: active assigned session, compatibility draft alias, save task, submit session, latest session, and latest feedback endpoints under `/patient`.
+- `routers/doctor.py`: assigned patient list, doctor-created patient sessions, doctor session list/detail, and feedback submission under `/doctor`.
 - `routers/admin.py`: overview, patient/user admin lists, user creation, user detail, video links, latest feedback, and MediaPipe payload export under `/admin`.
 - `routers/analysis.py`: analysis job lookup and doctor retry under `/analysis/jobs`.
 - `routers/patients.py`: small patient profile endpoint `/patients/me`.
@@ -108,6 +108,14 @@ Recent commits use short imperative messages such as `add backend` and `edit vid
 Copy `backend/.env.example` to `backend/.env` for local setup. Do not commit real secrets, plaintext admin passwords, patient health data, raw videos, local upload folders, `.env`, `node_modules/`, `dist/`, or `.venv/`. Local upload storage is for demo only.
 
 ## Current Work Log
+
+- Changed `backend/app/schemas.py`, `backend/app/services/sessions.py`, `backend/app/services/session_mapper.py`, `backend/app/routers/patient.py`, and `backend/app/routers/doctor.py`: added `assigned` session status, active-recording session lookup without patient auto-create, one-active-session enforcement, doctor session creation at `POST /doctor/patients/{patient_id}/sessions`, assigned patient listing at `GET /doctor/patients`, active sessions in `GET /doctor/sessions`, and `movementType`/`fileId` hydration for `sessionTasks`.
+- Changed `src/features/patient/api/patientApi.ts`, `src/features/patient/types/patient.types.ts`, `src/features/patient/pages/PatientHomePage.tsx`, `src/features/patient/pages/PatientTutorialPage.tsx`, `src/features/patient/pages/PatientRecordPage.tsx`, and `src/features/patient/components/LatestSessionCard.tsx`: patient home now loads `/patient/sessions/active`, shows an empty state when no doctor-assigned session exists, carries `sessionTaskId` through tutorial/record routes, and saves into the assigned session task.
+- Changed `src/features/doctor/api/doctorApi.ts`, `src/features/doctor/data/doctor.mock.ts`, and `src/features/doctor/pages/DoctorDashboardPage.tsx`: doctor dashboard now loads assigned patients, includes an Add Session form with default lower-limb ROM task selection and optional instructions, creates sessions, shows active recording sessions as “Waiting for patient recording,” and keeps review/feedback controls for submitted analysis sessions.
+- Changed `tests/e2e/specs/api-flow.spec.ts` and `tests/e2e/specs/ui-flow.spec.ts`: E2E flows now have the doctor create a session before patient recording, and the API spec checks that creating a second active session returns `409 Conflict`.
+- Changed `README.md`, `backend/README.md`, `PROJECT_FLOW_FOR_AI.md`, and `AGENTS.md`: documented the doctor-assigned session flow, active recording states, new doctor/patient endpoints, and updated route ownership notes.
+- Current progress: doctor-assigned patient sessions are implemented end to end; `uv run python -m compileall app` and `npm.cmd run build` pass.
+- Remaining work: full `npm run test:e2e` still needs Docker Desktop/daemon and the E2E service stack running.
 
 - Added `src/app/LandingPage.tsx`: created the simple root landing page with only two large role-selection buttons for patient and doctor.
 - Added `src/app/AuthLoginPage.tsx`: created a shared `/auth/login?type=patient|doctor` login page that switches the form and destination by query param.
@@ -189,3 +197,32 @@ Copy `backend/.env.example` to `backend/.env` for local setup. Do not commit rea
 - What this file does: stores repository guidance, workflow rules, code map, commands, validation notes, and task progress.
 - Current progress: frontend routes, page ownership, backend routers/services, common change map, commands, style, testing, and security notes are documented.
 - Remaining work: none for this task.
+
+- Changed `src/features/patient/data/movementTasks.ts`, `src/features/patient/pages/PatientHomePage.tsx`, `src/features/patient/pages/PatientStatusPage.tsx`, `src/features/patient/pages/PatientRecordPage.tsx`, `src/features/patient/pages/PatientFeedbackPage.tsx`, `src/features/patient/components/UploadVideoBox.tsx`, `src/features/patient/components/FeedbackCard.tsx`, and `src/features/patient/components/LatestSessionCard.tsx`: translated the patient-facing copy on `/patient` into Thai while keeping task names unchanged, including dashboard labels, session/status cards, upload prompts, recording errors, and feedback/exercise labels.
+- Current progress: the patient flow reads in Thai for normal user-facing text, while task names such as `Hip Flexion` stay as-is.
+- Remaining work: a few backend-provided strings and legacy status labels may still surface in English depending on data returned by the API; `npm.cmd run build` passes.
+- Reworked `src/features/patient/data/movementTasks.ts` and rechecked the patient UI copy after a mojibake regression: restored readable Thai text for task instructions, symptom labels, upload text, and session cards.
+- Current progress: the patient-facing Thai text is back to readable UTF-8 in the rebuilt source files, and `npm.cmd run build` passes after the repair pass.
+- Remaining work: if any older cached browser assets still show broken Thai, refresh the browser hard or restart the dev server so it loads the rebuilt bundle.
+
+- Changed `backend/app/core/auth.py`, `backend/app/routers/auth.py`, `backend/app/routers/patient.py`, `backend/app/routers/doctor.py`, `backend/app/routers/admin.py`, `backend/app/routers/analysis.py`, `backend/app/routers/uploads.py`, `backend/app/db/mongo.py`, `backend/app/schemas.py`, `backend/app/main.py`, and backend services under `backend/app/services/`: refactored the backend toward DB-backed `users`, `tasks`, `sessions.sessionTasks`, `uploads.uploadId`, and `sessions.analysis`, while keeping compatibility aliases like `fileId`, legacy analysis-job routes, and legacy `tasks` in session responses for the current frontend.
+- Added `backend/app/services/users.py`, `backend/app/services/task_catalog.py`, `backend/app/services/storage.py`, and `backend/app/services/session_mapper.py`: introduced shared helpers for seeding/migrating users and tasks, local-storage metadata, and mapping new session documents back into frontend-compatible response shapes.
+- Changed `backend/README.md`, `PROJECT_FLOW_FOR_AI.md`, and `AGENTS.md`: documented the new backend schema direction, compatibility behavior, and migration-oriented workflow.
+- What these backend files now do: `users.py` seeds and resolves UUID/public user identities, `task_catalog.py` seeds active movement task definitions, `storage.py` stores upload metadata with object keys, `sessions.py` creates and upgrades `sessionTasks`, `analysis.py` runs per-session analysis using `sessions.analysis`, and `session_mapper.py` hydrates new session documents into current API responses.
+- Current progress: new backend writes are aligned with the target schema direction, frontend `npm.cmd run build` still passes, and Python syntax compilation for `backend/app` passes.
+- Remaining work: true backend runtime validation still needs backend dependencies installed locally (`fastapi` was unavailable in this environment), old collections such as `admin_users` and `analysis_jobs` are kept only for migration compatibility paths, and Playwright/API E2E specs still need a full rerun against the refactored backend when the backend environment is available.
+- Changed `backend/app/services/users.py`: removed the back-reference import to `hash_password` from `app.core.auth` so backend startup no longer hits the circular import between `auth.py` and `users.py`.
+- Current progress: the previous `ImportError: cannot import name 'hash_password' from partially initialized module 'app.core.auth'` is fixed, and `python compileall backend/app` still passes.
+- Remaining work: rerun `uv run uvicorn app.main:app --reload --port 8001` inside `backend/` to confirm full startup in the project virtualenv; a plain system Python import check still lacks `fastapi`, which is expected outside the `uv` environment.
+- Changed `backend/app/services/common.py`, `backend/app/services/sessions.py`, `backend/app/services/task_catalog.py`, `backend/app/services/storage.py`, `backend/app/services/analysis.py`, and `backend/app/db/mongo.py`: extracted shared time/ID helpers to break service-level circular imports and changed new unique Mongo indexes to partial unique indexes so legacy records with missing fields like `uploadId = null` no longer block backend startup.
+- Current progress: the later `ImportError` between `sessions.py` and `task_catalog.py` is fixed, and the Mongo startup failure now has a compatibility-safe index definition; `python compileall backend/app` still passes.
+- Remaining work: rerun `uv run uvicorn app.main:app --reload --port 8001` inside `backend/` to confirm startup gets past Mongo index creation in your local database; if another startup error appears, it should now be the next real runtime issue rather than the same circular import/index problem.
+
+- Changed `backend/app/db/mongo.py`: added a startup-safe helper for partial unique string indexes that detects legacy indexes with the same auto-generated name but different options, drops only the mismatched index, and recreates it with the expected partial filter.
+- What this file does: manages MongoDB connection lifecycle and creates required collection indexes during FastAPI startup.
+- Current progress: fixed the Mongo `IndexKeySpecsConflict` caused by an existing legacy `userId_1` index without `partialFilterExpression`; `uv run python -m compileall app` passes and the running backend responds to `GET /health` with `{"status":"ok"}`.
+- Remaining work: port `8001` is already occupied by an existing project `uvicorn app.main:app --reload --port 8001` process, so starting another backend on the same port still fails with `WinError 10048`; stop the existing process or use another port if you need a second instance.
+
+- Changed `README.md`: added a concise current work log near the top so the repository landing page now reflects the active doctor-assigned session flow, the unified frontend route structure, backend compatibility mapping, and the current validation status.
+- Current progress: the README now surfaces the latest project state without removing the existing overview, setup, or limitation sections.
+- Remaining work: none for this documentation pass.

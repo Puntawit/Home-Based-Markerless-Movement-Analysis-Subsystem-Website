@@ -30,11 +30,11 @@ export function FeedbackCard({ feedback }: FeedbackCardProps) {
             </div>
             <p className="line-clamp-2 text-sm leading-6 text-slate-700">{feedback.patientSummary}</p>
             <div className="flex flex-wrap gap-2">
-              <Badge tone="green">{feedback.exercisePlan.length} exercises</Badge>
+              <Badge tone="green">{feedback.exercisePlan.length} ท่าออกกำลังกาย</Badge>
               {hasRetake ? (
                 <Badge tone="yellow" className="gap-1">
                   <RotateCcw className="h-3 w-3" />
-                  Retake needed
+                  ต้องถ่ายใหม่
                 </Badge>
               ) : null}
             </div>

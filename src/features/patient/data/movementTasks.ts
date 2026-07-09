@@ -1,14 +1,5 @@
-import {
-  Activity,
-  Armchair,
-  Footprints,
-  ShieldAlert,
-  type LucideIcon,
-} from "lucide-react";
-import type {
-  PatientMovementType,
-  PatientViewType,
-} from "@/features/patient/types/patient.types";
+import { Activity, Armchair, Footprints, ShieldAlert, type LucideIcon } from "lucide-react";
+import type { PatientMovementType, PatientViewType } from "@/features/patient/types/patient.types";
 
 export type MovementTask = {
   id: PatientMovementType;
@@ -38,18 +29,18 @@ export type SymptomQuestion = {
 };
 
 const commonJointOptions: SymptomOption[] = [
-  { id: "none", label: "No symptoms" },
-  { id: "pain", label: "Pain" },
-  { id: "tight", label: "Tight/stiff" },
-  { id: "weak", label: "Weak" },
-  { id: "numb", label: "Numb/tingly" },
+  { id: "none", label: "ไม่มีอาการ" },
+  { id: "pain", label: "ปวด" },
+  { id: "tight", label: "ตึง/แข็ง" },
+  { id: "weak", label: "อ่อนแรง" },
+  { id: "numb", label: "ชา/ซ่า" },
 ];
 
 const safetyOptions: SymptomOption[] = [
-  { id: "none", label: "No symptoms" },
-  { id: "pain", label: "Pain" },
-  { id: "dizzy", label: "Dizzy" },
-  { id: "unsafe", label: "Felt unsafe" },
+  { id: "none", label: "ไม่มีอาการ" },
+  { id: "pain", label: "ปวด" },
+  { id: "dizzy", label: "เวียนศีรษะ" },
+  { id: "unsafe", label: "รู้สึกไม่ปลอดภัย" },
 ];
 
 export const legacyMovementTaskLabels: Partial<Record<PatientMovementType, string>> = {
@@ -65,15 +56,14 @@ export const movementTasks: MovementTask[] = [
     id: "hip_flexion",
     label: "Hip Flexion",
     shortLabel: "Hip Flexion",
-    description: "Sit side-on to the camera and lift one knee toward the chest as high as comfortable.",
+    description: "นั่งหันข้างเข้ากล้อง แล้วยกเข่าข้างหนึ่งขึ้นเข้าหาหน้าอกเท่าที่สบาย",
     view: "side",
-    distance: "Place the camera about 1.5-2 m away at hip height, side to your chair.",
+    distance: "วางกล้องห่างประมาณ 1.5-2 เมตร ระดับสะโพก และอยู่ด้านข้างเก้าอี้",
     durationSeconds: 10,
-    tutorialTitle: "Seated knee lift for hip flexion",
+    tutorialTitle: "ท่ายกเข่านั่งเพื่อประเมินการงอสะโพก",
     tutorialBody:
-      "Sit tall in a sturdy chair with both feet flat. Keep your trunk upright, then lift one knee toward your chest as high as comfortable. The system reads the trunk-to-thigh angle from the side view.",
-    safetyNote:
-      "Stay seated throughout this task. Do not stand up or lean back hard to force the movement.",
+      "นั่งหลังตรงบนเก้าอี้ที่มั่นคง โดยวางเท้าทั้งสองข้างราบกับพื้น จากนั้นยกเข่าข้างหนึ่งขึ้นเข้าหาหน้าอกเท่าที่สบาย ระบบจะอ่านมุมระหว่างลำตัวกับต้นขาจากมุมด้านข้าง",
+    safetyNote: "ให้นั่งอยู่ตลอดท่านี้ ห้ามลุกขึ้นยืนหรือเอนหลังแรง ๆ เพื่อฝืนท่า",
     silhouette: "side-chair",
     icon: Armchair,
     symptomQuestions: [
@@ -86,15 +76,14 @@ export const movementTasks: MovementTask[] = [
     id: "hip_extension",
     label: "Hip Extension",
     shortLabel: "Hip Extension",
-    description: "Lie face-down, keep the leg straight, and lift one straight leg off the surface.",
+    description: "นอนคว่ำ เหยียดขาตรง แล้วค่อย ๆ ยกขาตรงข้างหนึ่งพ้นพื้น",
     view: "side",
-    distance: "Place the camera about 1.5-2 m away at bed or mat height, side to your body.",
+    distance: "วางกล้องห่างประมาณ 1.5-2 เมตร ที่ระดับเตียงหรือเสื่อ และอยู่ด้านข้างลำตัว",
     durationSeconds: 10,
-    tutorialTitle: "Prone straight-leg lift for hip extension",
+    tutorialTitle: "ท่ายกขาตรงนอนคว่ำเพื่อประเมินการเหยียดสะโพก",
     tutorialBody:
-      "Lie face-down on a bed or mat with both legs straight. Lift one straight leg gently off the surface without bending the knee. If lying prone is difficult, stand facing a counter with both hands supported and gently swing one leg back.",
-    safetyNote:
-      "Use the prone version when possible. For the standing alternative, keep both hands on a stable counter and stop if you feel unsafe.",
+      "นอนคว่ำบนเตียงหรือเสื่อโดยเหยียดขาทั้งสองข้างตรง แล้วยกขาตรงข้างหนึ่งขึ้นอย่างนุ่มนวลโดยไม่งอเข่า หากนอนคว่ำลำบาก ให้ยืนหันหน้าเข้าหาโต๊ะหรือเคาน์เตอร์แล้วใช้มือทั้งสองข้างพยุง จากนั้นค่อย ๆ เหวี่ยงขาข้างหนึ่งไปด้านหลัง",
+    safetyNote: "ควรใช้ท่านอนคว่ำเป็นหลัก หากต้องใช้ท่ายืน ให้จับโต๊ะหรือเคาน์เตอร์ที่มั่นคงด้วยมือทั้งสองข้าง และหยุดทันทีหากรู้สึกไม่ปลอดภัย",
     silhouette: "side-chair",
     icon: Activity,
     symptomQuestions: [
@@ -108,15 +97,14 @@ export const movementTasks: MovementTask[] = [
     id: "knee_flexion",
     label: "Knee Flexion",
     shortLabel: "Knee Flexion",
-    description: "Sit on the edge of a bed or table with thighs supported, then bend the knee to draw the heel back.",
+    description: "นั่งที่ขอบเตียงหรือโต๊ะโดยให้ต้นขาได้รับการพยุง แล้วงอเข่าเพื่อนำส้นเท้าถอยกลับ",
     view: "side",
-    distance: "Place the camera about 1.5-2 m away, side to the tested leg.",
+    distance: "วางกล้องห่างประมาณ 1.5-2 เมตร อยู่ด้านข้างขาที่ทดสอบ",
     durationSeconds: 10,
-    tutorialTitle: "Seated edge knee bend",
+    tutorialTitle: "ท่างอเข่านั่งริมเตียง",
     tutorialBody:
-      "Sit on the edge of a bed or stable table. Keep your thigh supported and let the lower leg hang. Bend the knee to draw the heel back under you while staying stable and supported.",
-    safetyNote:
-      "Make sure the bed or table is stable before starting. Keep your hands supported if needed.",
+      "นั่งที่ขอบเตียงหรือโต๊ะที่มั่นคง โดยให้ต้นขาได้รับการพยุงและปล่อยช่วงล่างของขาห้อยลง จากนั้นงอเข่าเพื่อนำส้นเท้าถอยกลับใต้ตัว โดยรักษาสมดุลและการพยุงไว้ตลอดเวลา",
+    safetyNote: "ตรวจสอบว่าเตียงหรือโต๊ะมั่นคงก่อนเริ่ม และใช้มือพยุงได้หากจำเป็น",
     silhouette: "side-chair",
     icon: Armchair,
     symptomQuestions: [
@@ -129,15 +117,14 @@ export const movementTasks: MovementTask[] = [
     id: "knee_extension",
     label: "Knee Extension",
     shortLabel: "Knee Extension",
-    description: "From the same seated edge position, straighten the lower leg out toward horizontal.",
+    description: "จากท่านั่งริมเตียงเดิม ให้เหยียดช่วงล่างของขาออกไปจนเกือบขนานพื้น",
     view: "side",
-    distance: "Place the camera about 1.5-2 m away, side to the tested leg.",
+    distance: "วางกล้องห่างประมาณ 1.5-2 เมตร อยู่ด้านข้างขาที่ทดสอบ",
     durationSeconds: 10,
-    tutorialTitle: "Seated edge knee straightening",
+    tutorialTitle: "ท่าเหยียดเข่านั่งริมเตียง",
     tutorialBody:
-      "Sit on the edge of a bed or stable table with your thigh supported. Slowly straighten the lower leg toward horizontal, then relax. The system reads the thigh-to-shank angle as the knee returns toward straight.",
-    safetyNote:
-      "Do not kick quickly. Move slowly and stop if knee pain increases.",
+      "นั่งที่ขอบเตียงหรือโต๊ะที่มั่นคงโดยให้ต้นขาได้รับการพยุง ค่อย ๆ เหยียดช่วงล่างของขาออกไปจนเกือบขนานพื้น แล้วผ่อนกลับ ระบบจะอ่านมุมระหว่างต้นขากับหน้าแข้งขณะเข่าเหยียดตรง",
+    safetyNote: "ห้ามเหวี่ยงขาเร็วเกินไป ให้เคลื่อนไหวช้า ๆ และหยุดหากอาการปวดเข่าเพิ่มขึ้น",
     silhouette: "side-chair",
     icon: Footprints,
     symptomQuestions: [
@@ -150,15 +137,14 @@ export const movementTasks: MovementTask[] = [
     id: "ankle_dorsiflexion",
     label: "Ankle Dorsiflexion",
     shortLabel: "Dorsiflexion",
-    description: "Sit with the foot flat, keep the heel on the floor, and lift the toes up toward the shin.",
+    description: "นั่งโดยวางเท้าราบกับพื้น คงส้นเท้าไว้กับพื้น แล้วกระดกปลายเท้าขึ้นเข้าหาแข้ง",
     view: "side",
-    distance: "Place the camera about 1-1.5 m away, side to the tested foot and ankle.",
+    distance: "วางกล้องห่างประมาณ 1-1.5 เมตร อยู่ด้านข้างของเท้าและข้อเท้าที่ทดสอบ",
     durationSeconds: 8,
-    tutorialTitle: "Seated toe lift with heel down",
+    tutorialTitle: "ท่ายกปลายเท้านั่งโดยส้นเท้าแตะพื้น",
     tutorialBody:
-      "Sit in a chair with your foot flat on the floor. Keep the heel planted and lift the toes and forefoot up toward the shin. This replaces the standing knee-to-wall lunge for a safer shank-to-foot angle.",
-    safetyNote:
-      "Keep the heel on the floor and stay seated. No standing lunge is needed.",
+      "นั่งบนเก้าอี้โดยวางเท้าราบกับพื้น คงส้นเท้าไว้กับพื้นแล้วกระดกปลายเท้าและฝ่าเท้าส่วนหน้าขึ้นเข้าหาแข้ง ท่านี้ใช้แทนท่ายืนพุ่งเข่าเข้ากำแพงเพื่อประเมินมุมหน้าแข้งกับเท้าอย่างปลอดภัยกว่า",
+    safetyNote: "คงส้นเท้าไว้บนพื้นและนั่งอยู่ตลอดท่า ไม่จำเป็นต้องทำท่ายืนพุ่ง",
     silhouette: "side-chair",
     icon: ShieldAlert,
     symptomQuestions: [
@@ -171,15 +157,14 @@ export const movementTasks: MovementTask[] = [
     id: "ankle_plantarflexion",
     label: "Ankle Plantarflexion",
     shortLabel: "Plantarflexion",
-    description: "Sit with the foot lifted slightly off the floor, then point the toes down as far as comfortable.",
+    description: "นั่งโดยยกเท้าขึ้นจากพื้นเล็กน้อย แล้วเหยียดปลายเท้าลงให้มากที่สุดเท่าที่สบาย",
     view: "side",
-    distance: "Place the camera about 1-1.5 m away, side to the tested foot and ankle.",
+    distance: "วางกล้องห่างประมาณ 1-1.5 เมตร อยู่ด้านข้างของเท้าและข้อเท้าที่ทดสอบ",
     durationSeconds: 8,
-    tutorialTitle: "Seated toe point without heel raise",
+    tutorialTitle: "ท่าเหยียดปลายเท้านั่งโดยไม่ยกส้น",
     tutorialBody:
-      "Sit in a chair and lift the tested foot slightly off the floor. Point the toes down as far as comfortable while the shank stays visible. The system reads the shank-to-foot angle.",
-    safetyNote:
-      "Do not perform a standing heel raise. This task should stay seated to avoid fall risk.",
+      "นั่งบนเก้าอี้แล้วยกเท้าที่ทดสอบพ้นพื้นขึ้นเล็กน้อย เหยียดปลายเท้าลงเท่าที่สบายโดยให้หน้าแข้งยังมองเห็นได้ชัด ระบบจะอ่านมุมระหว่างหน้าแข้งกับเท้า",
+    safetyNote: "ห้ามทำท่ายืนเขย่งส้น ท่านี้ควรนั่งทำเพื่อหลีกเลี่ยงความเสี่ยงต่อการล้ม",
     silhouette: "side-chair",
     icon: Footprints,
     symptomQuestions: [

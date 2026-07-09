@@ -20,7 +20,7 @@ import { clearBackendAuthToken } from "@/lib/backendApi";
 export function PatientHomePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const draftQuery = useQuery({
+  const activeSessionQuery = useQuery({
     queryKey: ["patient", "draft-session"],
     queryFn: getPatientDraftSession,
   });
@@ -41,13 +41,13 @@ export function PatientHomePage() {
     },
   });
 
-  const draft = draftQuery.data;
+  const activeSession = activeSessionQuery.data ?? null;
   const latestSession = sessionQuery.data;
-  const completedCount = draft?.tasks.filter((task) => task.status === "recorded").length ?? 0;
-  const totalCount = draft?.tasks.length ?? latestSession?.tasks.length ?? 0;
+  const completedCount = activeSession?.tasks.filter((task) => task.status === "recorded").length ?? 0;
+  const totalCount = activeSession?.tasks.length ?? 0;
   const progressValue = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   const isReadyToSubmit = totalCount > 0 && completedCount === totalCount;
-  const patientLabel = draft?.patientId ?? latestSession?.patientId ?? "ผู้ป่วยทดลอง";
+  const patientLabel = activeSession?.patientName ?? latestSession?.patientName ?? "ผู้ป่วย";
 
   function handleLogout() {
     clearBackendAuthToken();
@@ -62,17 +62,13 @@ export function PatientHomePage() {
     <MobileScreen>
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
               <UserRound className="h-6 w-6" />
             </span>
             <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 sm:text-sm">
-                สวัสดีครับ
-              </p>
-              <h1 className="truncate text-base font-semibold text-slate-950 sm:text-xl">
-                Patient ID: {patientLabel}
-              </h1>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 sm:text-sm">สวัสดีครับ</p>
+              <h1 className="truncate text-base font-semibold text-slate-950 sm:text-xl">{patientLabel}</h1>
             </div>
           </div>
           <Button
@@ -81,8 +77,8 @@ export function PatientHomePage() {
             icon={<LogOut className="h-4 w-4" />}
             onClick={handleLogout}
             size="icon"
-            variant="outline"
             title="ออกจากระบบ"
+            variant="outline"
           >
             <span className="sr-only">ออกจากระบบ</span>
           </Button>
@@ -91,18 +87,16 @@ export function PatientHomePage() {
         <div className="rounded-lg border border-cyan-100 bg-cyan-50 px-4 py-3">
           <p className="text-sm font-semibold text-cyan-950">สถานะ Session ปัจจุบัน</p>
           <p className="mt-1 text-xs leading-5 text-cyan-800">
-            บันทึกให้ครบทั้ง {totalCount || "ทุก"} ท่าใน session เดียว ระบบจะเก็บเป็น draft ก่อน แล้วค่อยส่งให้แพทย์ตรวจเมื่อครบทั้งหมด
+            {activeSession
+              ? `Complete all ${totalCount} assigned movements in this session before sending them to your doctor.`
+              : "ยังไม่มี session ที่แพทย์มอบหมาย เมื่อแพทย์สร้าง session แล้วรายการท่าจะปรากฏที่นี่"}
           </p>
         </div>
       </div>
 
       <section className="space-y-3">
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <ProgressBar
-            label={`${completedCount}/${totalCount} ท่าเสร็จแล้ว`}
-            valueLabel=""
-            value={progressValue}
-          />
+          <ProgressBar label={`${completedCount}/${totalCount} ท่าเสร็จแล้ว`} valueLabel="" value={progressValue} />
           <Button
             className="mt-4 h-12 w-full bg-emerald-700 hover:bg-emerald-800 focus-visible:ring-emerald-600"
             data-testid="patient-submit-session"
@@ -123,25 +117,35 @@ export function PatientHomePage() {
           ) : null}
         </div>
 
-        {draftQuery.isError ? (
+        {activeSessionQuery.isError ? (
           <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-            โหลด draft session ไม่ได้ กรุณาตรวจสอบว่า MongoDB และ backend ทำงานอยู่
+            โหลด active session ไม่ได้ กรุณาตรวจสอบว่า MongoDB และ backend ทำงานอยู่
           </p>
-        ) : draftQuery.isLoading ? (
-          <LoadingSpinner label="กำลังโหลด draft session" />
+        ) : activeSessionQuery.isLoading ? (
+          <LoadingSpinner label="กำลังโหลด active session" />
+        ) : !activeSession ? (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">ยังไม่มี session ที่แพทย์มอบหมาย</p>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              ตอนนี้ยังไม่มีรายการท่าที่ต้องบันทึก กรุณารอให้แพทย์สร้าง session ให้ก่อน
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
-            {draft?.tasks.map((sessionTask) => {
+            {activeSession.tasks.map((sessionTask) => {
               const task = movementTaskMap[sessionTask.movementType];
               const TaskIcon = task?.icon ?? Activity;
               const recorded = sessionTask.status === "recorded";
+              const sessionTaskId = sessionTask.sessionTaskId ?? sessionTask.id;
 
               return (
                 <button
                   className="group rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50/50"
                   data-testid={`patient-task-${sessionTask.movementType}`}
-                  key={sessionTask.movementType}
-                  onClick={() => navigate(`/patient/tutorial?task=${sessionTask.movementType}`)}
+                  key={sessionTaskId}
+                  onClick={() =>
+                    navigate(`/patient/tutorial?task=${sessionTask.movementType}&sessionTaskId=${sessionTaskId}`)
+                  }
                   type="button"
                 >
                   <div className="flex items-start gap-3">
@@ -156,24 +160,24 @@ export function PatientHomePage() {
                         <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                       </div>
                       <p className="mt-1 text-xs leading-5 text-slate-500">
-                        {task?.description ?? "ท่านี้มาจาก protocol เดิมของระบบ"}
+                        {task?.description ?? "Task from the assigned protocol"}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge tone={recorded ? "green" : "slate"}>
-                          {recorded ? "บันทึกแล้ว" : "ยังไม่เริ่ม"}
-                        </Badge>
+                        <Badge tone={recorded ? "green" : "slate"}>{recorded ? "บันทึกแล้ว" : "ยังไม่เริ่ม"}</Badge>
                         {task ? <Badge tone="cyan">{task.durationSeconds} วินาที</Badge> : null}
                         {sessionTask.quality ? (
                           <Badge tone={sessionTask.quality.qualityScore >= 90 ? "green" : "yellow"}>
                             คุณภาพ {sessionTask.quality.qualityScore}
                           </Badge>
                         ) : null}
-                        {sessionTask.fileName ? <Badge tone="blue">{sessionTask.fileName}</Badge> : null}
+                        {sessionTask.fileName ? (
+                          <Badge className="max-w-full truncate" tone="blue">
+                            {sessionTask.fileName}
+                          </Badge>
+                        ) : null}
                       </div>
                     </div>
-                    {recorded ? (
-                      <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-600" />
-                    ) : null}
+                    {recorded ? <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-600" /> : null}
                   </div>
                 </button>
               );

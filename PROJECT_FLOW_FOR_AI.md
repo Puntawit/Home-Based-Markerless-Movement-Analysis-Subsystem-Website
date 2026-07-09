@@ -6,14 +6,15 @@ This project is a frontend prototype for a home-based markerless movement analys
 
 The main idea is:
 
-1. A patient records or uploads movement videos from home.
-2. The system stores each movement task in a draft assessment session.
-3. After all required tasks are completed, the patient submits the session.
-4. The system shows a mock processing flow for pose extraction and screening.
-5. A doctor reviews movement quality, risk flags, event markers, charts, and writes feedback.
-6. The patient reads the doctor feedback and exercise plan.
+1. A doctor creates and assigns a recording session for a patient.
+2. A patient records or uploads movement videos from home for that assigned session.
+3. The system stores each movement task in the assigned assessment session.
+4. After all required tasks are completed, the patient submits the session.
+5. The system shows a mock processing flow for pose extraction and screening.
+6. A doctor reviews movement quality, risk flags, event markers, charts, and writes feedback.
+7. The patient reads the doctor feedback and exercise plan.
 
-The active patient, doctor, and admin flows are wired to the FastAPI backend in `backend/`, with MongoDB metadata storage and MediaPipe service integration for analysis. Some legacy prototype screens still use older mock data.
+The active patient, doctor, and admin flows are wired to the FastAPI backend in `backend/`, with MongoDB metadata storage and MediaPipe service integration for analysis. The backend is moving from demo-only collections toward DB-backed `users`, `tasks`, `sessions.sessionTasks`, `uploads.uploadId`, and `sessions.analysis`. Some legacy prototype screens still use older mock data.
 
 ## Tech Stack
 
@@ -37,12 +38,12 @@ Main routes:
 | `/` | Simple role selection landing page |
 | `/auth/login?type=patient` | Patient login |
 | `/auth/login?type=doctor` | Doctor login |
-| `/patient` | Patient home and current draft session |
+| `/patient` | Patient home and current doctor-assigned active session |
 | `/patient/tutorial` | Tutorial before recording a movement task |
 | `/patient/record` | Camera setup, recording/upload, review, symptom report, save task |
 | `/patient/status` | Session processing and review status |
 | `/patient/feedback` | Patient-facing doctor feedback |
-| `/doctor` | Doctor review dashboard |
+| `/doctor` | Doctor review dashboard and Add Session flow |
 | `/admin/login` | Admin password login |
 | `/admin/dashboard` | Admin users, videos, feedback, and payload console |
 
@@ -66,12 +67,13 @@ src/features/patient/data/patient.mock.ts
 
 ### Assessment Session
 
-A patient session contains 6 required lower-limb ROM movement tasks. A session starts as a draft. Each task becomes recorded after the patient records or uploads a video and saves it.
+A patient session contains assigned lower-limb ROM movement tasks. In v1 the doctor Add Session form defaults to all 6 lower-limb ROM tasks, and the doctor can uncheck tasks before creation. A session starts as `assigned`, becomes `draft` after partial recording, and becomes `ready_to_submit` after every assigned task is recorded.
 
 Session statuses:
 
 | Status | Meaning |
 | --- | --- |
+| `assigned` | Doctor created the session and patient has not recorded any task yet |
 | `draft` | Some tasks are not finished yet |
 | `ready_to_submit` | All 6 tasks are recorded |
 | `queued_analysis` | Submitted and waiting for analysis |
@@ -136,22 +138,22 @@ src/features/patient/pages/PatientHomePage.tsx
 
 The home page loads:
 
-- current draft session
+- current active assigned session
 - latest submitted session
 - latest doctor feedback
 
 Mock API functions:
 
 ```text
-getPatientDraftSession()
+getPatientDraftSession() // calls /patient/sessions/active
 getLatestPatientSession()
 getLatestDoctorFeedback()
 ```
 
-The page shows the 6 lower-limb ROM movement tasks. Selecting a task navigates to:
+The page shows only the tasks from the active session assigned by the doctor. If there is no active session, it shows an empty state saying there is no doctor-assigned session yet. Selecting a task navigates with both movement type and session task identity:
 
 ```text
-/patient/tutorial?task=<task_id>
+/patient/tutorial?task=<task_id>&sessionTaskId=<session_task_id>
 ```
 
 When all 6 tasks are recorded, the submit button becomes enabled. Pressing it calls:
@@ -271,7 +273,7 @@ When all 6 tasks are recorded, `submitPatientSession()` changes the draft into a
 queued_analysis
 ```
 
-The backend then starts MediaPipe analysis jobs and moves the session through analysis and doctor-review statuses.
+The backend then starts per-session analysis work and moves the session through analysis and doctor-review statuses.
 
 ### 6. Status Page
 
@@ -343,7 +345,7 @@ The doctor dashboard lets a doctor:
 9. Write a clinical summary and patient-friendly summary.
 10. Use UI buttons for exercise plan, retake task, and structured feedback.
 
-The active doctor dashboard reads backend sessions, shows analyzed task results, and submits structured feedback back to the backend so the patient can read it.
+The active doctor dashboard reads assigned patients and backend sessions, creates new patient recording sessions with the Add Session form, shows analyzed task results, and submits structured feedback back to the backend so the patient can read it. New backend records use UUID internal IDs with human-readable `publicId` values kept for migration compatibility.
 
 ## Intended Full System Architecture
 

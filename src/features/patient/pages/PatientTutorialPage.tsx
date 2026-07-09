@@ -11,6 +11,7 @@ export function PatientTutorialPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const task = getMovementTask(searchParams.get("task"));
+  const sessionTaskId = searchParams.get("sessionTaskId");
   const [videoWatched, setVideoWatched] = useState(false);
 
   useEffect(() => {
@@ -30,7 +31,9 @@ export function PatientTutorialPage() {
           data-testid="patient-tutorial-continue"
           disabled={!videoWatched}
           icon={<ChevronRight className="h-4 w-4" />}
-          onClick={() => navigate(`/patient/record?task=${task.id}`)}
+          onClick={() =>
+            navigate(`/patient/record?task=${task.id}${sessionTaskId ? `&sessionTaskId=${sessionTaskId}` : ""}`)
+          }
           size="lg"
         >
           ถัดไป

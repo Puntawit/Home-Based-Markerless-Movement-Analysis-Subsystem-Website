@@ -29,7 +29,8 @@ function normalizeSession(session: PatientSession | null): PatientSession | null
     id: session.id ?? session.sessionId,
     tasks: session.tasks.map((task) => ({
       ...task,
-      id: task.id ?? task.taskId ?? task.movementType,
+      id: task.id ?? task.sessionTaskId ?? task.taskId ?? task.movementType,
+      sessionTaskId: task.sessionTaskId ?? task.id,
     })),
   };
 }
@@ -70,8 +71,8 @@ export async function uploadPatientVideo(file: File) {
 }
 
 export async function getPatientDraftSession() {
-  const session = await backendRequest<PatientSession>("/patient/sessions/draft");
-  return normalizeSession(session)!;
+  const session = await backendRequest<PatientSession | null>("/patient/sessions/active");
+  return normalizeSession(session);
 }
 
 export async function getLatestPatientSession() {
@@ -90,8 +91,12 @@ export async function savePatientSessionTask(payload: SavePatientSessionTaskPayl
     throw new Error("A video file is required before saving this movement task.");
   }
 
+  const endpoint = payload.sessionTaskId
+    ? `/patient/sessions/draft/session-tasks/${payload.sessionTaskId}`
+    : `/patient/sessions/draft/tasks/${payload.movementType}`;
+
   const session = await backendRequest<PatientSession>(
-    `/patient/sessions/draft/tasks/${payload.movementType}`,
+    endpoint,
     {
       body: JSON.stringify({
         fileId,

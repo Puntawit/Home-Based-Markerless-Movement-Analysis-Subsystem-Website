@@ -1,6 +1,8 @@
 # Movement Analysis Backend
 
-FastAPI backend for the Movement Analysis Subsystem demo. It supports patient video upload, draft sessions, doctor review, feedback, MongoDB metadata storage, local demo video storage, and MediaPipe orchestration.
+FastAPI backend for the Movement Analysis Subsystem demo. It supports doctor-assigned patient recording sessions, patient video upload, doctor review, feedback, MongoDB metadata storage, local demo video storage, and MediaPipe orchestration.
+
+The backend now writes toward the newer domain schema with `users`, `tasks`, `sessions.sessionTasks`, `uploads.uploadId`, and `sessions.analysis`. Compatibility aliases such as `fileId`, legacy `/analysis/jobs/...`, and legacy `tasks` in session responses are still kept during migration.
 
 ## Run Locally
 
@@ -81,7 +83,7 @@ Use the returned signed demo JWT in:
 Authorization: Bearer <accessToken>
 ```
 
-This is still demo-only auth, but tokens are now signed, expire, and are limited to patient/doctor/admin allowlists. Patient IDs must be listed in `DEMO_PATIENTS`. Doctor users can only see patients mapped in `DEMO_DOCTOR_PATIENT_IDS`. Admin passwords should be stored only as `ADMIN_PASSWORD_HASH` in local `.env`; do not commit plaintext passwords.
+This is still demo-only auth, but tokens are now signed, expire, and resolve to DB-backed records in `users`. Demo IDs from `DEMO_PATIENTS`, `DEMO_DOCTORS`, and `DEMO_ADMINS` are seeded into `users.publicId`, then mapped to internal UUID `users.userId`. Doctor access is enforced through patient `assignedDoctorId`. Admin passwords should be stored only as `ADMIN_PASSWORD_HASH` in local `.env`; do not commit plaintext passwords.
 
 Old `mock-token-*` values are no longer accepted. Log in again after upgrading.
 
@@ -94,7 +96,7 @@ GET /admin/overview
 Authorization: Bearer <admin accessToken>
 ```
 
-This endpoint returns aggregate user counts, session status counts, upload totals, analysis job counts, feedback counts, audit event summaries, and backend/MongoDB/MediaPipe configuration health. User counts are based on MongoDB-observed identities only; env-configured demo users are returned separately. Admin overview requests are audit logged because the response includes patient-level system aggregates.
+This endpoint returns aggregate user counts, session status counts, upload totals, session-analysis counts, feedback counts, audit event summaries, and backend/MongoDB/MediaPipe configuration health. User counts now come from `users`. Admin overview requests are audit logged because the response includes patient-level system aggregates.
 
 The redesigned admin console also uses:
 
@@ -117,18 +119,23 @@ POST /uploads/video/{file_id}/playback-token
 Authorization: Bearer <accessToken>
 ```
 
-The response contains a `videoUrl` with a short-lived `videoToken`. The stream endpoint also accepts a normal `Authorization` header for API clients. Do not use local upload storage for real patient data.
+The response contains a `videoUrl` with a short-lived `videoToken`. The stream endpoint also accepts a normal `Authorization` header for API clients. Upload records now use `uploadId` and storage metadata; `fileId` remains as a compatibility alias. Do not use local upload storage for real patient data.
 
 ## Core Flow
 
-1. Patient uploads a video with `POST /uploads/video`.
-2. Patient saves a task with `POST /patient/sessions/draft/tasks/{movement_type}` using the returned `fileId`.
-3. After all 6 lower-limb ROM movement tasks are recorded, patient submits with `POST /patient/sessions/submit`.
-4. Backend creates an analysis job and calls MediaPipe once per task video.
-5. Doctor reviews sessions from `GET /doctor/sessions`.
-6. Doctor can retry failed analysis jobs with `POST /analysis/jobs/{job_id}/retry`.
-7. Doctor sends feedback with `POST /doctor/sessions/{session_id}/feedback`.
-8. Patient reads the latest feedback from `GET /patient/feedback/latest`.
+1. Doctor lists assigned patients with `GET /doctor/patients`.
+2. Doctor creates a recording session with `POST /doctor/patients/{patient_id}/sessions`. The request selects active task codes and defaults in the frontend to all 6 lower-limb ROM tasks.
+3. Patient loads the active assigned session with `GET /patient/sessions/active`. `GET /patient/sessions/draft` is kept as a compatibility alias but no longer auto-creates a session.
+4. Patient uploads a video with `POST /uploads/video`.
+5. Patient saves a task with `POST /patient/sessions/draft/tasks/{movement_type}` or `POST /patient/sessions/draft/session-tasks/{sessionTaskId}` using the returned `uploadId`.
+6. After all assigned movement tasks are recorded, patient submits with `POST /patient/sessions/submit`.
+7. Backend marks `sessions.analysis.status = queued` and calls MediaPipe once per session task video.
+8. Doctor reviews sessions from `GET /doctor/sessions`, including active recording sessions and submitted analysis sessions.
+9. Doctor can retry failed analysis with `POST /analysis/sessions/{session_id}/retry` or the legacy `POST /analysis/jobs/{job_id}/retry`.
+10. Doctor sends feedback with `POST /doctor/sessions/{session_id}/feedback`.
+11. Patient reads the latest feedback from `GET /patient/feedback/latest`.
+
+Session status `assigned` means the doctor has created the session and the patient has not recorded any task yet. `assigned`, `draft`, and `ready_to_submit` are active recording states. A patient can have only one active recording session at a time; creating a second one returns `409 Conflict`.
 
 Active lower-limb ROM movement tasks:
 
@@ -146,6 +153,9 @@ ankle_plantarflexion
 The main demo endpoints now declare Pydantic response models so the frontend can rely on stable top-level shapes:
 
 - `GET /patient/sessions/draft`
+- `GET /patient/sessions/active`
+- `GET /doctor/patients`
+- `POST /doctor/patients/{patient_id}/sessions`
 - `POST /patient/sessions/draft/tasks/{movement_type}`
 - `POST /patient/sessions/submit`
 - `GET /patient/sessions/latest`
@@ -155,8 +165,9 @@ The main demo endpoints now declare Pydantic response models so the frontend can
 - `POST /doctor/sessions/{session_id}/feedback`
 - `GET /analysis/jobs/{job_id}`
 - `POST /analysis/jobs/{job_id}/retry`
+- `POST /analysis/sessions/{session_id}/retry`
 
-Flexible payloads are still allowed inside fields such as `quality`, `symptomReport`, `rawPayload`, and `metrics`, but session, task, feedback, analysis job, doctor view, and analysis result summaries have typed response shapes.
+Flexible payloads are still allowed inside fields such as `quality`, `symptomReport`, `rawPayload`, and `metrics`, but session, task, feedback, compatibility job views, doctor view, and analysis result summaries have typed response shapes.
 
 ## Upload Validation
 

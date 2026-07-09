@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Layers,
   LogOut,
+  Plus,
   Play,
   RefreshCw,
   Search,
@@ -18,21 +19,21 @@ import {
   SlidersHorizontal,
   Stethoscope,
 } from "lucide-react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import type { DoctorEventMarker, DoctorPatient, DoctorRiskLevel, DoctorSession, EventSeverity } from "@/features/doctor/data/doctor.mock";
+import type {
+  DoctorEventMarker,
+  DoctorMetric,
+  DoctorMetricGroup,
+  DoctorPatient,
+  DoctorRiskLevel,
+  DoctorSession,
+  EventSeverity,
+} from "@/features/doctor/data/doctor.mock";
 import {
+  createDoctorSession,
   getDoctorPatients,
   getDoctorTaskVideoUrl,
   retryAnalysisJob,
@@ -42,6 +43,8 @@ import { formatShortDate } from "@/lib/formatDate";
 import { cn } from "@/lib/cn";
 import { clearDoctorBackendAuthToken, isAuthExpiredError } from "@/lib/backendApi";
 import type { DoctorFeedbackSeverity } from "@/features/patient/types/patient.types";
+import type { PatientMovementType } from "@/features/patient/types/patient.types";
+import { movementTasks } from "@/features/patient/data/movementTasks";
 
 const riskBadge: Record<DoctorRiskLevel, { label: string; tone: "green" | "yellow" | "red" }> = {
   high: { label: "High Risk", tone: "red" },
@@ -52,8 +55,11 @@ const riskBadge: Record<DoctorRiskLevel, { label: string; tone: "green" | "yello
 
 const statusBadge = {
   analysis_failed: { label: "Analysis failed", tone: "red" as const },
+  assigned: { label: "Assigned", tone: "blue" as const },
+  draft: { label: "Recording", tone: "blue" as const },
   pending_review: { label: "Ready for review", tone: "yellow" as const },
   processing: { label: "Processing", tone: "blue" as const },
+  ready_to_submit: { label: "Ready to submit", tone: "blue" as const },
   reviewed: { label: "Reviewed", tone: "green" as const },
 };
 
@@ -62,6 +68,30 @@ const eventTone: Record<EventSeverity, string> = {
   info: "bg-cyan-300",
   warning: "bg-amber-300",
 };
+
+const metricGroupLabels: Record<DoctorMetricGroup, string> = {
+  compensation: "Compensation and smoothness",
+  gait_parameters: "Gait parameters",
+  joint_angles: "Joint angles",
+  smoothness: "Compensation and smoothness",
+  symmetry: "Symmetry",
+};
+
+function groupMetrics(metrics: DoctorMetric[]) {
+  const order: DoctorMetricGroup[] = ["joint_angles", "gait_parameters", "compensation", "smoothness", "symmetry"];
+  const grouped = new Map<string, DoctorMetric[]>();
+
+  metrics.forEach((metric) => {
+    const key = metricGroupLabels[metric.group] ?? metric.group;
+    grouped.set(key, [...(grouped.get(key) ?? []), metric]);
+  });
+
+  return order
+    .map((group) => metricGroupLabels[group])
+    .filter((label, index, labels) => labels.indexOf(label) === index)
+    .map((label) => ({ label, metrics: grouped.get(label) ?? [] }))
+    .filter((entry) => entry.metrics.length > 0);
+}
 
 function feedbackSeverityForRisk(riskLevel: DoctorRiskLevel): DoctorFeedbackSeverity {
   if (riskLevel === "high") return "high";
@@ -103,6 +133,12 @@ export function DoctorDashboardPage() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [expandedPatientId, setExpandedPatientId] = useState("");
+  const [showAddSession, setShowAddSession] = useState(false);
+  const [addSessionPatientId, setAddSessionPatientId] = useState("");
+  const [addSessionInstructions, setAddSessionInstructions] = useState("");
+  const [selectedTaskCodes, setSelectedTaskCodes] = useState<PatientMovementType[]>(
+    movementTasks.map((task) => task.id),
+  );
 
   // reviewFrame tracks 0-100 progress of the video
   const [reviewFrame, setReviewFrame] = useState(0);
@@ -147,8 +183,16 @@ export function DoctorDashboardPage() {
     mutationFn: retryAnalysisJob,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["doctor", "sessions"] }),
   });
+  const createSessionMutation = useMutation({
+    mutationFn: createDoctorSession,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["doctor", "sessions"] });
+      setShowAddSession(false);
+    },
+  });
 
   const doctorPatients = doctorQuery.data ?? [];
+  const addSessionPatient = addSessionPatientId || doctorPatients[0]?.id || "";
   const filteredPatients = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return doctorPatients;
@@ -248,15 +292,59 @@ export function DoctorDashboardPage() {
     );
   }
 
-  if (!selectedPatient || !selectedSession) {
+  if (!selectedPatient) {
     return (
       <DoctorShell>
         <StatusPanel
           tone="slate"
-          title="No submitted sessions yet"
-          body="Submit a patient assessment first. This dashboard now shows only sessions loaded from the backend."
+          title="No assigned patients"
+          body="No patients are assigned to this doctor account yet."
         />
       </DoctorShell>
+    );
+  }
+
+  if (!selectedSession) {
+    return (
+      <main className="min-h-screen bg-slate-100 p-4 text-slate-950 lg:p-6" data-testid="doctor-dashboard">
+        <div className="mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold text-slate-950">Doctor Motion Review</h1>
+              <p className="mt-1 text-sm text-slate-500">Create a recording session before the patient can upload videos.</p>
+            </div>
+            <Button icon={<LogOut className="h-4 w-4" />} onClick={handleLogout} variant="outline">
+              Logout
+            </Button>
+          </div>
+          <div className="mt-6">
+            <AddSessionPanel
+              createError={createSessionMutation.error}
+              isPending={createSessionMutation.isPending}
+              instructions={addSessionInstructions}
+              onInstructionsChange={setAddSessionInstructions}
+              onPatientChange={setAddSessionPatientId}
+              onSubmit={() =>
+                createSessionMutation.mutate({
+                  instructions: addSessionInstructions.trim() || undefined,
+                  patientId: addSessionPatient,
+                  taskCodes: selectedTaskCodes,
+                })
+              }
+              onTaskToggle={(taskCode) =>
+                setSelectedTaskCodes((current) =>
+                  current.includes(taskCode)
+                    ? current.filter((item) => item !== taskCode)
+                    : [...current, taskCode],
+                )
+              }
+              patients={doctorPatients}
+              selectedPatientId={addSessionPatient}
+              selectedTaskCodes={selectedTaskCodes}
+            />
+          </div>
+        </div>
+      </main>
     );
   }
 
@@ -272,7 +360,7 @@ export function DoctorDashboardPage() {
     : "N/A";
 
   const canSendFeedback = selectedSession.status === "pending_review" || selectedSession.status === "reviewed";
-  const canRetry = selectedSession.status === "analysis_failed" && Boolean(selectedSession.analysisJobId);
+  const canRetry = selectedSession.status === "analysis_failed";
 
   const recommendations = recommendationsText
     .split(/\r?\n/)
@@ -362,6 +450,17 @@ export function DoctorDashboardPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button
+              data-testid="doctor-add-session"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => {
+                setAddSessionPatientId(selectedPatient.id);
+                setShowAddSession(true);
+              }}
+              variant="outline"
+            >
+              Add Session
+            </Button>
             <Badge tone={statusBadge[selectedSession.status].tone}>{statusBadge[selectedSession.status].label}</Badge>
             <Badge tone={sessionRisk.tone}>{sessionRisk.label}</Badge>
             <Badge tone={averageQuality !== "N/A" && averageQuality >= 90 ? "green" : "yellow"}>
@@ -385,6 +484,52 @@ export function DoctorDashboardPage() {
           Demo mode: authentication uses local mock tokens that expire based on the backend TTL. Sign in again when a session expires.
         </p>
 
+        {showAddSession ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+            onClick={() => setShowAddSession(false)}
+          >
+            <div
+              className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">Add Session</p>
+                  <p className="text-xs text-slate-500">Assign movement tasks for one patient recording session.</p>
+                </div>
+                <Button onClick={() => setShowAddSession(false)} size="sm" variant="outline">
+                  Close
+                </Button>
+              </div>
+              <AddSessionPanel
+                createError={createSessionMutation.error}
+                isPending={createSessionMutation.isPending}
+                instructions={addSessionInstructions}
+                onInstructionsChange={setAddSessionInstructions}
+                onPatientChange={setAddSessionPatientId}
+                onSubmit={() =>
+                  createSessionMutation.mutate({
+                    instructions: addSessionInstructions.trim() || undefined,
+                    patientId: addSessionPatient,
+                    taskCodes: selectedTaskCodes,
+                  })
+                }
+                onTaskToggle={(taskCode) =>
+                  setSelectedTaskCodes((current) =>
+                    current.includes(taskCode)
+                      ? current.filter((item) => item !== taskCode)
+                      : [...current, taskCode],
+                  )
+                }
+                patients={doctorPatients}
+                selectedPatientId={addSessionPatient}
+                selectedTaskCodes={selectedTaskCodes}
+              />
+            </div>
+          </div>
+        ) : null}
+
         {selectedSession.status === "analysis_failed" ? (
           <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
             <div className="flex items-start gap-2">
@@ -397,7 +542,7 @@ export function DoctorDashboardPage() {
                 <Button
                   disabled={retryMutation.isPending}
                   icon={<RefreshCw className="h-4 w-4" />}
-                  onClick={() => retryMutation.mutate(selectedSession.analysisJobId!)}
+                  onClick={() => retryMutation.mutate(selectedSession.analysisJobId ?? selectedSession.id)}
                   size="sm"
                   variant="outline"
                 >
@@ -407,6 +552,23 @@ export function DoctorDashboardPage() {
             </div>
           </div>
         ) : null}
+
+        {["assigned", "draft", "ready_to_submit"].includes(selectedSession.status) ? (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-6 text-blue-950">
+            <p className="text-lg font-semibold">Waiting for patient recording</p>
+            <p className="mt-2 text-sm leading-6">
+              This session has been assigned to the patient. Review, video playback, and feedback controls will be available after the patient records all assigned tasks and submits the session.
+            </p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {selectedSession.tasks.map((task) => (
+                <div className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm" key={task.id}>
+                  <p className="font-semibold text-slate-900">{task.taskLabel}</p>
+                  <p className="text-slate-500">{task.fileId ? "Recorded" : "Waiting for video"}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
 
         <div className="grid flex-1 gap-4 xl:grid-cols-[340px_minmax(520px,1fr)_430px]">
           <aside className="rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -448,17 +610,24 @@ export function DoctorDashboardPage() {
 
                   return (
                     <div className="space-y-2" key={patient.id}>
-                      <button
+                      <div
                         aria-controls={latestSession ? sessionListId : undefined}
                         aria-expanded={latestSession ? isExpandedPatient : undefined}
                         className={cn(
-                          "w-full rounded-lg border p-4 text-left transition",
+                          "w-full cursor-pointer rounded-lg border p-4 text-left transition",
                           isSelectedPatient
                             ? "border-cyan-500 bg-cyan-50 shadow-sm"
                             : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
                         )}
                         onClick={() => handleSelectPatient(patient.id)}
-                        type="button"
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleSelectPatient(patient.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
                       >
                         <div className="flex items-center gap-3">
                           <span
@@ -472,8 +641,7 @@ export function DoctorDashboardPage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="truncate text-base font-semibold text-slate-950">{patient.id}</p>
-                                <p className="mt-1 truncate text-sm text-slate-500">{patient.displayName}</p>
+                                <p className="truncate text-base font-semibold text-slate-950">{patient.displayName}</p>
                               </div>
                               {latestSession ? (
                                 <span
@@ -489,7 +657,18 @@ export function DoctorDashboardPage() {
                                   {formatSessionCount(patient.sessions.length)}
                                 </span>
                               ) : (
-                                <Badge tone="slate">No Sessions</Badge>
+                                <Button
+                                  data-testid={`doctor-new-session-${patient.id}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setAddSessionPatientId(patient.id);
+                                    setShowAddSession(true);
+                                  }}
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  New Session
+                                </Button>
                               )}
                             </div>
                             {isSelectedPatient && latestSession ? (
@@ -498,17 +677,15 @@ export function DoctorDashboardPage() {
                               </p>
                             ) : null}
                           </div>
-                          {isSelectedPatient ? (
-                            isExpandedPatient ? (
+                          {latestSession ? (
+                            isSelectedPatient && isExpandedPatient ? (
                               <ChevronDown className="h-5 w-5 shrink-0 text-slate-500" />
                             ) : (
                               <ChevronRight className="h-5 w-5 shrink-0 text-slate-500" />
                             )
-                          ) : (
-                            <ChevronRight className="h-5 w-5 shrink-0 text-slate-500" />
-                          )}
+                          ) : null}
                         </div>
-                      </button>
+                      </div>
 
                       {isExpandedPatient && latestSession ? (
                         <div className="ml-8 border-l-2 border-cyan-500 pb-2 pl-5" id={sessionListId}>
@@ -549,7 +726,10 @@ export function DoctorDashboardPage() {
                 <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4">
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-slate-950">{selectedPatient.id}</p>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {selectedPatient.displayName}
+                        {selectedPatient.age ? ` · ${selectedPatient.age} yrs` : ""}
+                      </p>
                       <p className="text-sm text-slate-500">Assessment Session | {selectedSession.tasks.length} videos</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -638,43 +818,30 @@ export function DoctorDashboardPage() {
                   <section className="rounded-lg border border-slate-200 p-4">
                     <div className="flex items-center gap-2">
                       <Activity className="h-4 w-4 text-cyan-700" />
-                      <p className="text-sm font-semibold text-slate-950">Clinical Kinematic Graphs</p>
+                      <p className="text-sm font-semibold text-slate-950">Clinical Metrics</p>
                     </div>
-                    <div className="mt-4 h-56 flex items-center justify-center">
-                      {!selectedTask || !selectedTask.chartData || selectedTask.chartData.length === 0 ? (
-                        <div className="w-full h-full flex items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-slate-500 text-sm">
-                          No analysis metrics yet
-                        </div>
-                      ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={selectedTask.chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis dataKey="frame" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} />
-                            <Tooltip />
-                            <Line type="monotone" dataKey="knee" name="Knee angle" stroke="#0e7490" strokeWidth={2} dot={false} />
-                            <Line type="monotone" dataKey="hip" name="Hip / trunk" stroke="#059669" strokeWidth={2} dot={false} />
-                            <Line type="monotone" dataKey="symmetry" name="Symmetry" stroke="#b45309" strokeWidth={2} dot={false} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      )}
-                    </div>
+                    {!selectedTask || selectedTask.metrics.length === 0 ? (
+                      <div className="mt-4 flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+                        No analysis metrics yet
+                      </div>
+                    ) : (
+                      <div className="mt-4 space-y-4">
+                        {groupMetrics(selectedTask.metrics).map((group) => (
+                          <div key={group.label}>
+                            <p className="text-xs font-semibold uppercase text-slate-500">{group.label}</p>
+                            <div className="mt-2 grid gap-3 md:grid-cols-3">
+                              {group.metrics.map((metric) => (
+                                <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-4" key={metric.label}>
+                                  <p className="text-xs font-medium text-slate-500">{metric.label}</p>
+                                  <p className="mt-1 text-lg font-semibold text-slate-950">{metric.value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </section>
-
-                  {!selectedTask || !selectedTask.metrics || selectedTask.metrics.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
-                      No analysis metrics yet
-                    </div>
-                  ) : (
-                    <div className="grid gap-3 md:grid-cols-3">
-                      {selectedTask.metrics.map((metric) => (
-                        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-4" key={metric.label}>
-                          <p className="text-xs font-medium text-slate-500">{metric.label}</p>
-                          <p className="mt-1 text-lg font-semibold text-slate-950">{metric.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </section>
 
@@ -836,8 +1003,102 @@ export function DoctorDashboardPage() {
             </>
           )}
         </div>
+        )}
       </div>
     </main>
+  );
+}
+
+function AddSessionPanel({
+  createError,
+  instructions,
+  isPending,
+  onInstructionsChange,
+  onPatientChange,
+  onSubmit,
+  onTaskToggle,
+  patients,
+  selectedPatientId,
+  selectedTaskCodes,
+}: {
+  createError: unknown;
+  instructions: string;
+  isPending: boolean;
+  onInstructionsChange: (value: string) => void;
+  onPatientChange: (value: string) => void;
+  onSubmit: () => void;
+  onTaskToggle: (taskCode: PatientMovementType) => void;
+  patients: DoctorPatient[];
+  selectedPatientId: string;
+  selectedTaskCodes: PatientMovementType[];
+}) {
+  return (
+    <div className="space-y-4">
+      <label className="block space-y-1.5">
+        <span className="text-xs font-medium text-slate-500">Patient</span>
+        <select
+          className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950"
+          data-testid="doctor-add-session-patient"
+          onChange={(event) => onPatientChange(event.target.value)}
+          value={selectedPatientId}
+        >
+          {patients.map((patient) => (
+            <option key={patient.id} value={patient.id}>
+              {patient.displayName}
+              {patient.age ? ` (${patient.age} yrs)` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-slate-500">Movement tasks</p>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {movementTasks.map((task) => (
+            <label
+              className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 bg-white p-3 text-sm"
+              key={task.id}
+            >
+              <input
+                checked={selectedTaskCodes.includes(task.id)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-cyan-700 focus:ring-cyan-600"
+                onChange={() => onTaskToggle(task.id)}
+                type="checkbox"
+              />
+              <span>
+                <span className="block font-semibold text-slate-900">{task.label}</span>
+                <span className="mt-1 block text-xs text-slate-500">{task.durationSeconds} seconds</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <label className="block space-y-1.5">
+        <span className="text-xs font-medium text-slate-500">Instruction / note</span>
+        <textarea
+          className="min-h-[82px] w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+          onChange={(event) => onInstructionsChange(event.target.value)}
+          placeholder="Optional clinical context for this recording session"
+          value={instructions}
+        />
+      </label>
+
+      {createError ? (
+        <p className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          {createError instanceof Error ? createError.message : "Could not create session."}
+        </p>
+      ) : null}
+
+      <Button
+        data-testid="doctor-create-session"
+        disabled={isPending || !selectedPatientId || selectedTaskCodes.length === 0}
+        icon={<Plus className="h-4 w-4" />}
+        onClick={onSubmit}
+      >
+        {isPending ? "Creating..." : "Create Session"}
+      </Button>
+    </div>
   );
 }
 

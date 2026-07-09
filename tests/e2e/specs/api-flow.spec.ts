@@ -42,6 +42,26 @@ async function pollLatestSession(patientToken: string) {
 }
 
 test("backend critical path completes patient submit, analysis, feedback, and admin visibility", async () => {
+  const doctorToken = await login("doctor");
+  const doctorApi = await request.newContext({
+    baseURL: backendURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${doctorToken}` },
+  });
+  const createSession = await doctorApi.post("/doctor/patients/PATIENT-7712/sessions", {
+    data: {
+      instructions: "API E2E assigned session",
+      taskCodes: movementTypes,
+    },
+  });
+  expect(createSession.ok()).toBeTruthy();
+
+  const duplicateSession = await doctorApi.post("/doctor/patients/PATIENT-7712/sessions", {
+    data: {
+      taskCodes: movementTypes,
+    },
+  });
+  expect(duplicateSession.status()).toBe(409);
+
   const patientToken = await login("patient");
   const patientApi = await request.newContext({
     baseURL: backendURL,
@@ -91,11 +111,6 @@ test("backend critical path completes patient submit, analysis, feedback, and ad
   expect(readySession.tasks).toHaveLength(6);
   expect(readySession.tasks.every((task: { analysisStatus: string }) => task.analysisStatus === "completed")).toBe(true);
 
-  const doctorToken = await login("doctor");
-  const doctorApi = await request.newContext({
-    baseURL: backendURL,
-    extraHTTPHeaders: { Authorization: `Bearer ${doctorToken}` },
-  });
   const sessions = await doctorApi.get("/doctor/sessions");
   expect(sessions.ok()).toBeTruthy();
   const doctorSessions = await sessions.json();

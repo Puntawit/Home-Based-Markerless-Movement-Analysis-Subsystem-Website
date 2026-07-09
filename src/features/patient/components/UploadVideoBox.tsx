@@ -34,9 +34,9 @@ export function UploadVideoBox({ fileName, error, onChange }: UploadVideoBoxProp
           </span>
           <div>
             <p className="text-sm font-semibold text-slate-800">
-              {fileName ? "Replace selected video" : "Upload movement video"}
+              {fileName ? "เปลี่ยนวิดีโอที่เลือกไว้" : "อัปโหลดวิดีโอการเคลื่อนไหว"}
             </p>
-            <p className="mt-1 text-xs text-slate-500">Supports MP4, MOV, or WEBM files</p>
+            <p className="mt-1 text-xs text-slate-500">รองรับไฟล์ MP4, MOV และ WEBM</p>
           </div>
         </div>
       </label>

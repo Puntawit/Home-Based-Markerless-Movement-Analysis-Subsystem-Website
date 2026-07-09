@@ -9,6 +9,15 @@ export type DoctorEventMarker = {
   severity: EventSeverity;
 };
 
+export type DoctorMetricGroup = "joint_angles" | "gait_parameters" | "compensation" | "smoothness" | "symmetry";
+
+export type DoctorMetric = {
+  group: DoctorMetricGroup;
+  label: string;
+  value: string;
+  tone: "slate" | "cyan" | "amber" | "rose";
+};
+
 export type DoctorSessionTask = {
   id: string;
   movementType: PatientMovementType;
@@ -21,24 +30,14 @@ export type DoctorSessionTask = {
   recommendedAction: string;
   flags: string[];
   eventMarkers: DoctorEventMarker[];
-  metrics: {
-    label: string;
-    value: string;
-    tone: "slate" | "cyan" | "amber" | "rose";
-  }[];
-  chartData: {
-    frame: number;
-    knee: number;
-    hip: number;
-    symmetry: number;
-  }[];
+  metrics: DoctorMetric[];
 };
 
 export type DoctorSession = {
   id: string;
   patientId: string;
   createdAt: string;
-  status: "pending_review" | "reviewed" | "processing" | "analysis_failed";
+  status: "assigned" | "draft" | "ready_to_submit" | "pending_review" | "reviewed" | "processing" | "analysis_failed";
   analysisJobId?: string;
   analysisJobError?: string | null;
   riskLevel: DoctorRiskLevel;
@@ -51,42 +50,6 @@ export type DoctorPatient = {
   age: number;
   sessions: DoctorSession[];
 };
-
-const gaitChartData = [
-  { frame: 0, knee: 12, hip: 8, symmetry: 93 },
-  { frame: 20, knee: 34, hip: 16, symmetry: 89 },
-  { frame: 40, knee: 66, hip: 29, symmetry: 82 },
-  { frame: 60, knee: 62, hip: 27, symmetry: 80 },
-  { frame: 80, knee: 38, hip: 18, symmetry: 86 },
-  { frame: 100, knee: 16, hip: 10, symmetry: 91 },
-];
-
-const sitChartData = [
-  { frame: 0, knee: 88, hip: 72, symmetry: 88 },
-  { frame: 20, knee: 76, hip: 64, symmetry: 84 },
-  { frame: 40, knee: 48, hip: 38, symmetry: 80 },
-  { frame: 60, knee: 52, hip: 42, symmetry: 79 },
-  { frame: 80, knee: 78, hip: 62, symmetry: 83 },
-  { frame: 100, knee: 90, hip: 74, symmetry: 86 },
-];
-
-const balanceChartData = [
-  { frame: 0, knee: 8, hip: 6, symmetry: 86 },
-  { frame: 20, knee: 12, hip: 11, symmetry: 82 },
-  { frame: 40, knee: 16, hip: 18, symmetry: 76 },
-  { frame: 60, knee: 14, hip: 24, symmetry: 74 },
-  { frame: 80, knee: 10, hip: 19, symmetry: 78 },
-  { frame: 100, knee: 9, hip: 12, symmetry: 83 },
-];
-
-const shoulderChartData = [
-  { frame: 0, knee: 0, hip: 4, symmetry: 92 },
-  { frame: 20, knee: 0, hip: 8, symmetry: 90 },
-  { frame: 40, knee: 0, hip: 14, symmetry: 86 },
-  { frame: 60, knee: 0, hip: 18, symmetry: 82 },
-  { frame: 80, knee: 0, hip: 16, symmetry: 84 },
-  { frame: 100, knee: 0, hip: 10, symmetry: 88 },
-];
 
 export const doctorPatientsMock: DoctorPatient[] = [
   {
@@ -116,11 +79,10 @@ export const doctorPatientsMock: DoctorPatient[] = [
               { frame: 66, label: "Minor step width variation", severity: "info" },
             ],
             metrics: [
-              { label: "Cadence", value: "94 spm", tone: "cyan" },
-              { label: "Symmetry index", value: "91%", tone: "cyan" },
-              { label: "Gait speed", value: "0.93 m/s", tone: "cyan" },
+              { group: "gait_parameters", label: "Cadence", value: "94 spm", tone: "cyan" },
+              { group: "gait_parameters", label: "Gait speed", value: "0.93 m/s", tone: "cyan" },
+              { group: "symmetry", label: "Symmetry index", value: "91%", tone: "cyan" },
             ],
-            chartData: gaitChartData,
           },
           {
             id: "task-7712-sit",
@@ -137,11 +99,10 @@ export const doctorPatientsMock: DoctorPatient[] = [
               { frame: 62, label: "Slow concentric phase", severity: "warning" },
             ],
             metrics: [
-              { label: "Completion", value: "5 reps", tone: "cyan" },
-              { label: "Control", value: "Moderate", tone: "amber" },
-              { label: "Concentric phase", value: "Slow", tone: "amber" },
+              { group: "joint_angles", label: "Completion", value: "5 reps", tone: "cyan" },
+              { group: "compensation", label: "Control", value: "Moderate", tone: "amber" },
+              { group: "smoothness", label: "Concentric phase", value: "Slow", tone: "amber" },
             ],
-            chartData: sitChartData,
           },
           {
             id: "task-7712-leg",
@@ -162,11 +123,10 @@ export const doctorPatientsMock: DoctorPatient[] = [
               { frame: 88, label: "Foot occlusion", severity: "critical" },
             ],
             metrics: [
-              { label: "Balance score", value: "68/100", tone: "amber" },
-              { label: "Symmetry index", value: "78%", tone: "amber" },
-              { label: "Pelvic drop", value: "12.1 deg", tone: "rose" },
+              { group: "joint_angles", label: "Balance score", value: "68/100", tone: "amber" },
+              { group: "symmetry", label: "Symmetry index", value: "78%", tone: "amber" },
+              { group: "compensation", label: "Pelvic drop", value: "12.1 deg", tone: "rose" },
             ],
-            chartData: balanceChartData,
           },
           {
             id: "task-7712-shoulder",
@@ -183,11 +143,10 @@ export const doctorPatientsMock: DoctorPatient[] = [
               { frame: 76, label: "Mild trunk compensation", severity: "warning" },
             ],
             metrics: [
-              { label: "ROM", value: "151 deg", tone: "cyan" },
-              { label: "Compensation", value: "Mild", tone: "amber" },
-              { label: "Smoothness", value: "Good", tone: "cyan" },
+              { group: "joint_angles", label: "ROM", value: "151 deg", tone: "cyan" },
+              { group: "compensation", label: "Compensation", value: "Mild", tone: "amber" },
+              { group: "smoothness", label: "Smoothness", value: "Good", tone: "cyan" },
             ],
-            chartData: shoulderChartData,
           },
         ],
       },
@@ -220,11 +179,10 @@ export const doctorPatientsMock: DoctorPatient[] = [
               { frame: 70, label: "Trunk compensation", severity: "critical" },
             ],
             metrics: [
-              { label: "ROM", value: "122 deg", tone: "rose" },
-              { label: "Compensation", value: "High", tone: "rose" },
-              { label: "Pose quality", value: "Fair", tone: "amber" },
+              { group: "joint_angles", label: "ROM", value: "122 deg", tone: "rose" },
+              { group: "compensation", label: "Compensation", value: "High", tone: "rose" },
+              { group: "smoothness", label: "Pose quality", value: "Fair", tone: "amber" },
             ],
-            chartData: shoulderChartData,
           },
         ],
       },

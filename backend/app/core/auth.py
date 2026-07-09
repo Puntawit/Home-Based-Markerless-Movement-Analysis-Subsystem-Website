@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Depends, Header, HTTPException, status
+from app.db.mongo import get_db
+from app.services.users import find_user_by_public_id, find_user_by_user_id
 
 from app.core.config import get_settings
 
@@ -15,6 +17,7 @@ from app.core.config import get_settings
 @dataclass(frozen=True)
 class CurrentUser:
     id: str
+    public_id: str
     role: str
     display_name: str
     assigned_patient_ids: set[str] = field(default_factory=set)
@@ -72,12 +75,13 @@ def verify_signed_token(token: str, expected_purpose: str) -> dict[str, Any]:
     return payload
 
 
-def create_access_token(*, user_id: str, role: str, display_name: str) -> tuple[str, str]:
+def create_access_token(*, user_id: str, public_id: str, role: str, display_name: str) -> tuple[str, str]:
     settings = get_settings()
     return create_signed_token(
         {
             "purpose": "access",
             "sub": user_id,
+            "publicId": public_id,
             "role": role,
             "displayName": display_name,
         },
@@ -108,7 +112,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_playback_token(
     *,
     actor: CurrentUser,
-    file_id: str,
+    upload_id: str,
     patient_id: str,
 ) -> tuple[str, str]:
     settings = get_settings()
@@ -116,48 +120,48 @@ def create_playback_token(
         {
             "purpose": "video_playback",
             "sub": actor.id,
+            "publicId": actor.public_id,
             "role": actor.role,
-            "fileId": file_id,
+            "uploadId": upload_id,
             "patientId": patient_id,
         },
         timedelta(minutes=settings.playback_token_ttl_minutes),
     )
 
 
-def user_from_access_payload(payload: dict[str, Any]) -> CurrentUser:
-    user_id = str(payload.get("sub") or "").upper()
+async def user_from_access_payload(payload: dict[str, Any]) -> CurrentUser:
+    user_id = str(payload.get("sub") or "")
+    public_id = str(payload.get("publicId") or "").upper()
     role = str(payload.get("role") or "")
-    display_name = str(payload.get("displayName") or user_id)
-    settings = get_settings()
+    display_name = str(payload.get("displayName") or public_id or user_id)
+    db = get_db()
+    user = await find_user_by_user_id(db, user_id)
+    if not user and public_id:
+        user = await find_user_by_public_id(db, public_id)
+    if not user or user.get("role") != role:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not allowed.")
+    if user.get("status") != "active":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive.")
 
-    if role == "patient":
-        if user_id not in settings.demo_patient_ids:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Patient is not allowed.")
-        return CurrentUser(id=user_id, role=role, display_name=display_name)
-
+    assigned_patient_ids: set[str] = set()
     if role == "doctor":
-        if user_id not in settings.demo_doctor_ids:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Doctor is not allowed.")
-        return CurrentUser(
-            id=user_id,
-            role=role,
-            display_name=display_name,
-            assigned_patient_ids=settings.doctor_patient_assignments.get(user_id, set()),
-        )
+        cursor = db.users.find({"role": "patient", "assignedDoctorId": user["userId"], "status": "active"}, {"userId": 1})
+        assigned_patient_ids = {str(document.get("userId") or "") async for document in cursor if document.get("userId")}
 
-    if role == "admin":
-        if user_id not in settings.demo_admin_ids:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin is not allowed.")
-        return CurrentUser(id=user_id, role=role, display_name=display_name)
-
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user role.")
+    return CurrentUser(
+        id=str(user["userId"]),
+        public_id=str(user.get("publicId") or public_id or user_id).upper(),
+        role=role,
+        display_name=str(user.get("name") or display_name),
+        assigned_patient_ids=assigned_patient_ids,
+    )
 
 
-def get_current_user(authorization: str | None = Header(default=None)) -> CurrentUser:
+async def get_current_user(authorization: str | None = Header(default=None)) -> CurrentUser:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token.")
     token = authorization.removeprefix("Bearer ").strip()
-    return user_from_access_payload(verify_signed_token(token, "access"))
+    return await user_from_access_payload(verify_signed_token(token, "access"))
 
 
 def require_patient(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
@@ -179,7 +183,6 @@ def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
 
 
 def can_access_patient(user: CurrentUser, patient_id: str) -> bool:
-    patient_id = patient_id.upper()
     if user.role == "admin":
         return True
     if user.role == "patient":

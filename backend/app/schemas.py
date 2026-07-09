@@ -18,6 +18,7 @@ MovementType = Literal[
 PatientView = Literal["front", "side", "front_and_side"]
 RiskLevel = Literal["low", "moderate", "high", "unknown"]
 SessionStatus = Literal[
+    "assigned",
     "draft",
     "ready_to_submit",
     "queued_analysis",
@@ -43,6 +44,7 @@ class AdminLoginRequest(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
+    publicId: str | None = None
     role: str
     displayName: str
 
@@ -54,7 +56,9 @@ class MockLoginResponse(BaseModel):
 
 
 class UploadResponse(BaseModel):
+    uploadId: str | None = None
     fileId: str
+    originalFileName: str | None = None
     fileName: str
     contentType: str
     sizeBytes: int
@@ -66,11 +70,17 @@ class PlaybackTokenResponse(BaseModel):
 
 
 class SaveTaskRequest(BaseModel):
-    fileId: str
+    uploadId: str | None = None
+    fileId: str | None = None
     view: PatientView
     quality: dict[str, Any] = Field(default_factory=dict)
     symptomReport: dict[str, Any] = Field(default_factory=dict)
     note: str | None = None
+
+
+class CreateDoctorSessionRequest(BaseModel):
+    taskCodes: list[MovementType]
+    instructions: str | None = None
 
 
 class FeedbackRequest(BaseModel):
@@ -96,7 +106,9 @@ class DoctorViewSummary(BaseModel):
 class AnalysisResultSummary(BaseModel):
     analysisResultId: str
     sessionId: str
+    sessionTaskId: str | None = None
     taskId: str
+    taskCode: str | None = None
     movementType: MovementType
     mediaPipeSessionId: str | None = None
     rawPayload: dict[str, Any] = Field(default_factory=dict)
@@ -105,6 +117,7 @@ class AnalysisResultSummary(BaseModel):
 
 
 class SessionTaskResponse(BaseModel):
+    sessionTaskId: str | None = None
     taskId: str
     movementType: MovementType
     taskLabel: str | None = None
@@ -114,6 +127,7 @@ class SessionTaskResponse(BaseModel):
     analysisResultId: str | None = None
     analysisResult: AnalysisResultSummary | None = None
     view: PatientView | None = None
+    uploadId: str | None = None
     fileId: str | None = None
     fileName: str | None = None
     videoUrl: str | None = None
@@ -155,8 +169,12 @@ class AnalysisJobResponse(BaseModel):
 class SessionResponse(BaseModel):
     sessionId: str
     patientId: str
+    patientPublicId: str | None = None
     patientName: str
+    doctorId: str | None = None
     status: SessionStatus
+    analysis: dict[str, Any] | None = None
+    sessionTasks: list[SessionTaskResponse] | None = None
     tasks: list[SessionTaskResponse]
     analysisJobId: str | None = None
     analysisJob: AnalysisJobResponse | None = None

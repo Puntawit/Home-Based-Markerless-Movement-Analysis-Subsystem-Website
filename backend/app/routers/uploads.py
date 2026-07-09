@@ -18,7 +18,7 @@ from app.db.mongo import get_db
 from app.schemas import PlaybackTokenResponse, UploadResponse
 from app.services.audit import audit_event
 from app.services.sessions import utc_now
-from app.services.uploads import ensure_safe_upload_path, save_upload_file
+from app.services.storage import resolve_local_storage_path, save_local_video_upload
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -55,16 +55,7 @@ async def upload_video(
 ) -> UploadResponse:
     db = get_db()
     await enforce_upload_quota(user.id)
-    file_id, stored_path, size = await save_upload_file(file)
-    document = {
-        "fileId": file_id,
-        "patientId": user.id,
-        "fileName": file.filename or stored_path.name,
-        "contentType": file.content_type or "application/octet-stream",
-        "sizeBytes": size,
-        "path": str(stored_path),
-        "createdAt": utc_now(),
-    }
+    document, stored_path = await save_local_video_upload(file, patient_id=user.id)
     try:
         await db.uploads.insert_one(document)
     except Exception:
@@ -76,14 +67,16 @@ async def upload_video(
         request=request,
         actor=user,
         resource_type="upload",
-        resource_id=file_id,
+        resource_id=document["uploadId"],
         patient_id=user.id,
     )
     return UploadResponse(
-        fileId=file_id,
+        uploadId=document["uploadId"],
+        fileId=document["uploadId"],
+        originalFileName=document["originalFileName"],
         fileName=document["fileName"],
         contentType=document["contentType"],
-        sizeBytes=size,
+        sizeBytes=document["sizeBytes"],
     )
 
 
@@ -94,19 +87,20 @@ async def create_video_playback_token(
     user: CurrentUser = Depends(get_current_user),
 ) -> PlaybackTokenResponse:
     db = get_db()
-    upload = await db.uploads.find_one({"fileId": file_id})
+    upload = await db.uploads.find_one({"$or": [{"uploadId": file_id}, {"fileId": file_id}]})
     if not upload:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
     require_patient_access(user, upload["patientId"])
-    token, expires_at = create_playback_token(actor=user, file_id=file_id, patient_id=upload["patientId"])
-    base_url = str(request.url_for("stream_video", file_id=file_id))
+    upload_id = upload.get("uploadId") or upload.get("fileId")
+    token, expires_at = create_playback_token(actor=user, upload_id=upload_id, patient_id=upload["patientId"])
+    base_url = str(request.url_for("stream_video", file_id=upload_id))
     await audit_event(
         action="upload.playback_token",
         outcome="success",
         request=request,
         actor=user,
         resource_type="upload",
-        resource_id=file_id,
+        resource_id=upload_id,
         patient_id=upload["patientId"],
     )
     return PlaybackTokenResponse(videoUrl=f"{base_url}?videoToken={quote(token)}", expiresAt=expires_at)
@@ -175,19 +169,21 @@ def user_from_video_credentials(
     *,
     authorization: str | None,
     video_token: str | None,
-    file_id: str,
-) -> CurrentUser:
+    upload_id: str,
+) -> CurrentUser | dict:
     if authorization and authorization.startswith("Bearer "):
         payload = verify_signed_token(authorization.removeprefix("Bearer ").strip(), "access")
-        return user_from_access_payload(payload)
+        return payload
     if video_token:
         payload = verify_signed_token(video_token, "video_playback")
-        if payload.get("fileId") != file_id:
+        token_upload_id = payload.get("uploadId") or payload.get("fileId")
+        if token_upload_id != upload_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Video token does not match this file.")
         return CurrentUser(
-            id=str(payload.get("sub") or "").upper(),
+            id=str(payload.get("sub") or ""),
+            public_id=str(payload.get("publicId") or payload.get("sub") or "").upper(),
             role=str(payload.get("role") or ""),
-            display_name=str(payload.get("sub") or "").upper(),
+            display_name=str(payload.get("publicId") or payload.get("sub") or "").upper(),
         )
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing video credentials.")
 
@@ -201,11 +197,15 @@ async def stream_video(
     range: str | None = Header(default=None),
 ):
     db = get_db()
-    upload = await db.uploads.find_one({"fileId": file_id})
+    upload = await db.uploads.find_one({"$or": [{"uploadId": file_id}, {"fileId": file_id}]})
     if not upload:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
 
-    user = user_from_video_credentials(authorization=authorization, video_token=video_token, file_id=file_id)
+    user_or_payload = user_from_video_credentials(authorization=authorization, video_token=video_token, upload_id=upload.get("uploadId") or file_id)
+    if isinstance(user_or_payload, dict):
+        user = await user_from_access_payload(user_or_payload)
+    else:
+        user = user_or_payload
     if video_token:
         token_payload = verify_signed_token(video_token, "video_playback")
         if token_payload.get("patientId") != upload.get("patientId"):
@@ -213,7 +213,7 @@ async def stream_video(
     else:
         require_patient_access(user, upload["patientId"])
 
-    path = ensure_safe_upload_path(Path(upload["path"]))
+    path = resolve_local_storage_path(upload["objectKey"])
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file missing on disk.")
 
@@ -223,7 +223,7 @@ async def stream_video(
         request=request,
         actor=user,
         resource_type="upload",
-        resource_id=file_id,
+        resource_id=upload.get("uploadId") or file_id,
         patient_id=upload["patientId"],
     )
 

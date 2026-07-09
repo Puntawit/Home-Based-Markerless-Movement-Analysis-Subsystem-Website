@@ -1,4 +1,4 @@
-import type { DoctorPatient, DoctorRiskLevel, DoctorSession, DoctorSessionTask } from "@/features/doctor/data/doctor.mock";
+import type { DoctorMetricGroup, DoctorPatient, DoctorRiskLevel, DoctorSession, DoctorSessionTask } from "@/features/doctor/data/doctor.mock";
 import type {
   DoctorExercisePlan,
   DoctorRetakeRequest,
@@ -9,6 +9,7 @@ import { backendRequest, backendVideoUrl, requireDoctorToken } from "@/lib/backe
 
 type BackendSessionTask = {
   taskId?: string;
+  sessionTaskId?: string;
   id?: string;
   movementType: PatientMovementType;
   taskLabel?: string;
@@ -21,7 +22,7 @@ type BackendSessionTask = {
       qualityScore?: number;
       qualityIssues?: string[];
       flags?: string[];
-      metrics?: { group: string; name: string; value: unknown }[];
+      metrics?: { group: DoctorMetricGroup; name: string; value: unknown }[];
     };
   };
 };
@@ -44,6 +45,14 @@ type BackendSession = {
   };
 };
 
+type BackendDoctorPatient = {
+  patientId: string;
+  patientName: string;
+  publicId?: string;
+  age?: number | null;
+  sessions: BackendSession[];
+};
+
 const taskLabels: Record<PatientMovementType, string> = {
   ankle_dorsiflexion: "Ankle Dorsiflexion",
   ankle_plantarflexion: "Ankle Plantarflexion",
@@ -58,15 +67,10 @@ const taskLabels: Record<PatientMovementType, string> = {
   sit_to_stand: "Sit to Stand",
 };
 
-const previewChartData = [
-  { frame: 0, knee: 20, hip: 12, symmetry: 90 },
-  { frame: 25, knee: 42, hip: 24, symmetry: 84 },
-  { frame: 50, knee: 68, hip: 32, symmetry: 78 },
-  { frame: 75, knee: 44, hip: 22, symmetry: 82 },
-  { frame: 100, knee: 18, hip: 10, symmetry: 88 },
-];
-
 function mapSessionStatus(status: string): DoctorSession["status"] {
+  if (status === "assigned") return "assigned";
+  if (status === "draft") return "draft";
+  if (status === "ready_to_submit") return "ready_to_submit";
   if (status === "feedback_ready") return "reviewed";
   if (status === "queued_analysis" || status === "processing_analysis") return "processing";
   if (status === "analysis_failed") return "analysis_failed";
@@ -85,7 +89,7 @@ function toTask(task: BackendSessionTask): DoctorSessionTask {
   const flags = view?.flags?.length ? view.flags : ["Waiting for MediaPipe result"];
 
   return {
-    id: task.taskId ?? task.id ?? task.movementType,
+    id: task.sessionTaskId ?? task.taskId ?? task.id ?? task.movementType,
     movementType: task.movementType,
     taskLabel: task.taskLabel ?? taskLabels[task.movementType],
     fileId: task.fileId,
@@ -100,12 +104,12 @@ function toTask(task: BackendSessionTask): DoctorSessionTask {
       label: flag,
       severity: riskLevel === "high" ? "critical" : riskLevel === "moderate" ? "warning" : "info",
     })),
-    metrics: (view?.metrics ?? []).slice(0, 6).map((metric) => ({
+    metrics: (view?.metrics ?? []).map((metric) => ({
+      group: metric.group,
       label: metric.name.replace(/_/g, " "),
       value: String(metric.value),
       tone: mapMetricTone(metric.value),
     })),
-    chartData: previewChartData,
   };
 }
 
@@ -134,24 +138,20 @@ function toSession(session: BackendSession): DoctorSession {
   };
 }
 
-function groupSessionsByPatient(sessions: BackendSession[]): DoctorPatient[] {
+function groupSessionsByPatient(patients: BackendDoctorPatient[]): DoctorPatient[] {
   const patientsById = new Map<string, DoctorPatient>();
 
-  const mappedSessions = sessions.map((session) => ({
-    source: session,
-    session: toSession(session),
-  }));
-
-  mappedSessions.forEach(({ source, session }) => {
-    const patient = patientsById.get(source.patientId) ?? {
-      age: 0,
-      displayName: source.patientName ?? source.patientId,
-      id: source.patientId,
+  patients.forEach((sourcePatient) => {
+    const sessions = sourcePatient.sessions.map((session) => toSession(session));
+    const patient = patientsById.get(sourcePatient.patientId) ?? {
+      age: sourcePatient.age ?? 0,
+      displayName: sourcePatient.patientName ?? sourcePatient.publicId ?? sourcePatient.patientId,
+      id: sourcePatient.patientId,
       sessions: [],
     };
 
-    patient.sessions.push(session);
-    patientsById.set(source.patientId, patient);
+    patient.sessions.push(...sessions);
+    patientsById.set(sourcePatient.patientId, patient);
   });
 
   return Array.from(patientsById.values())
@@ -164,16 +164,36 @@ function groupSessionsByPatient(sessions: BackendSession[]): DoctorPatient[] {
     .sort((current, next) => {
       const currentLatest = current.sessions[0]?.createdAt ?? "";
       const nextLatest = next.sessions[0]?.createdAt ?? "";
+      if (!currentLatest && !nextLatest) return current.displayName.localeCompare(next.displayName);
+      if (!currentLatest) return 1;
+      if (!nextLatest) return -1;
       return new Date(nextLatest).getTime() - new Date(currentLatest).getTime();
     });
 }
 
 export async function getDoctorPatients(): Promise<DoctorPatient[]> {
   const doctorToken = requireDoctorToken();
-  const sessions = await backendRequest<BackendSession[]>("/doctor/sessions", {
+  const patients = await backendRequest<BackendDoctorPatient[]>("/doctor/patients", {
     authToken: doctorToken,
   });
-  return groupSessionsByPatient(sessions);
+  return groupSessionsByPatient(patients);
+}
+
+export async function createDoctorSession({
+  instructions,
+  patientId,
+  taskCodes,
+}: {
+  instructions?: string;
+  patientId: string;
+  taskCodes: PatientMovementType[];
+}) {
+  const doctorToken = requireDoctorToken();
+  return backendRequest<BackendSession>(`/doctor/patients/${patientId}/sessions`, {
+    authToken: doctorToken,
+    body: JSON.stringify({ instructions, taskCodes }),
+    method: "POST",
+  });
 }
 
 export async function getDoctorTaskVideoUrl(fileId: string) {

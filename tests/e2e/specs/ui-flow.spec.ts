@@ -10,6 +10,13 @@ const movementTypes = [
 ];
 
 test("browser flow covers patient upload, doctor feedback, and admin review", async ({ page }) => {
+  await page.goto("/auth/login?type=doctor");
+  await page.getByTestId("doctor-login-submit").click();
+  await expect(page).toHaveURL(/\/doctor$/);
+  await expect(page.getByTestId("doctor-dashboard")).toBeVisible();
+  await page.getByTestId("doctor-create-session").click();
+  await expect(page.getByText("Waiting for patient recording")).toBeVisible();
+
   await page.goto("/auth/login?type=patient");
   await page.getByTestId("patient-login-submit").click();
   await expect(page).toHaveURL(/\/patient$/);
@@ -32,8 +39,7 @@ test("browser flow covers patient upload, doctor feedback, and admin review", as
   await page.getByTestId("patient-submit-session").click();
   await expect(page).toHaveURL(/\/patient\/status$/);
 
-  await page.goto("/auth/login?type=doctor");
-  await page.getByTestId("doctor-login-submit").click();
+  await page.goto("/doctor");
   await expect(page).toHaveURL(/\/doctor$/);
   await expect(page.getByTestId("doctor-dashboard")).toBeVisible();
   await expect(page.getByText("PATIENT-7712").first()).toBeVisible();

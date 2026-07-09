@@ -12,6 +12,7 @@ export type PatientMovementType =
   | "stair_task";
 
 export type PatientSessionStatus =
+  | "assigned"
   | "draft"
   | "ready_to_submit"
   | "waiting_doctor"
@@ -99,6 +100,7 @@ export type DoctorFeedback = {
 
 export type PatientSessionTask = {
   id: string;
+  sessionTaskId?: string;
   taskId?: string;
   movementType: PatientMovementType;
   status: PatientSessionTaskStatus;
@@ -130,6 +132,7 @@ export type PatientSession = {
 
 export type SavePatientSessionTaskPayload = {
   movementType: PatientMovementType;
+  sessionTaskId?: string;
   file?: File;
   fileId?: string;
   videoUrl?: string;
