@@ -56,7 +56,9 @@ async function main() {
     await run("npx", ["playwright", "test"], {
       env: {
         E2E_ADMIN_PASSWORD: "admin-test",
+        E2E_AUTH_SECRET: "e2e-test-secret-key-0123456789abcdef",
         E2E_BACKEND_PORT: "8001",
+        E2E_DEMO_PASSWORD: "Movecheck-e2e-1",
         E2E_FRONTEND_PORT: "5173",
       },
     });

@@ -10,10 +10,21 @@ const movementTypes = [
   "ankle_plantarflexion",
 ];
 
+const demoPassword = process.env.E2E_DEMO_PASSWORD ?? "Movecheck-e2e-1";
+const adminPassword = process.env.E2E_ADMIN_PASSWORD ?? "admin-test";
+
+// The admin has no seeded passwordHash on purpose, so it authenticates against
+// ADMIN_PASSWORD_HASH via ADMIN_USERNAME — exercising the bootstrap path.
+const credentials = {
+  admin: { identifier: "admin", password: adminPassword },
+  doctor: { identifier: "DOCTOR-DEMO", password: demoPassword },
+  patient: { identifier: "PATIENT-7712", password: demoPassword },
+} as const;
+
 async function login(role: "admin" | "doctor" | "patient") {
   const api = await request.newContext({ baseURL: backendURL });
-  const response = await api.post("/auth/mock-login", {
-    data: role === "patient" ? { patientId: "PATIENT-7712", role } : { role },
+  const response = await api.post("/auth/login", {
+    data: { ...credentials[role], role },
   });
   expect(response.ok()).toBeTruthy();
   const body = await response.json();
@@ -148,13 +159,7 @@ test("backend critical path completes patient submit, analysis, feedback, and ad
   expect(latestFeedbackBody.patientSummary).toBe("API E2E patient summary");
   await patientFeedbackApi.dispose();
 
-  const adminApi = await request.newContext({ baseURL: backendURL });
-  const adminLogin = await adminApi.post("/auth/admin-login", {
-    data: { password: process.env.E2E_ADMIN_PASSWORD ?? "admin-test", username: "admin" },
-  });
-  expect(adminLogin.ok()).toBeTruthy();
-  const adminToken = (await adminLogin.json()).accessToken;
-  await adminApi.dispose();
+  const adminToken = await login("admin");
 
   const authedAdminApi = await request.newContext({
     baseURL: backendURL,

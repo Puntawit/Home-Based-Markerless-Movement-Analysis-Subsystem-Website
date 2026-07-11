@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+const demoPassword = process.env.E2E_DEMO_PASSWORD ?? "Movecheck-e2e-1";
+
 const movementTypes = [
   "hip_flexion",
   "hip_extension",
@@ -11,6 +13,7 @@ const movementTypes = [
 
 test("browser flow covers patient upload, doctor feedback, and admin review", async ({ page }) => {
   await page.goto("/auth/login?type=doctor");
+  await page.getByTestId("doctor-password").fill(demoPassword);
   await page.getByTestId("doctor-login-submit").click();
   await expect(page).toHaveURL(/\/doctor$/);
   await expect(page.getByTestId("doctor-dashboard")).toBeVisible();
@@ -18,6 +21,7 @@ test("browser flow covers patient upload, doctor feedback, and admin review", as
   await expect(page.getByText("Waiting for patient recording")).toBeVisible();
 
   await page.goto("/auth/login?type=patient");
+  await page.getByTestId("patient-password").fill(demoPassword);
   await page.getByTestId("patient-login-submit").click();
   await expect(page).toHaveURL(/\/patient$/);
 

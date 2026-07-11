@@ -3,15 +3,23 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_AUTH_SECRET_KEY = "change-this-demo-secret-before-sharing"
+
 
 class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://localhost:27017"
     database_name: str = "movement_analysis"
     upload_dir: str = "uploads"
     frontend_origin: str = "http://localhost:5173"
-    auth_secret_key: str = "change-this-demo-secret-before-sharing"
+    auth_secret_key: str = DEFAULT_AUTH_SECRET_KEY
     access_token_ttl_minutes: int = 60
     playback_token_ttl_minutes: int = 5
+    pbkdf2_iterations: int = 600000
+    password_min_length: int = 12
+    max_failed_logins: int = 5
+    lockout_minutes: int = 15
+    min_auth_secret_length: int = 32
+    demo_login_password: str = ""
     demo_patients: str = "PATIENT-7712"
     demo_doctors: str = "DOCTOR-DEMO"
     demo_admins: str = "ADMIN-DEMO"
@@ -65,3 +73,21 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def validate_security_settings(settings: Settings) -> None:
+    """Refuse to start when the deployment would issue forgeable tokens.
+
+    There is deliberately no override flag: a bypass switch in production is the
+    exact failure mode this guard exists to prevent.
+    """
+    if settings.auth_secret_key == DEFAULT_AUTH_SECRET_KEY:
+        raise RuntimeError(
+            "AUTH_SECRET_KEY is still the shipped default. Set a unique secret "
+            "(e.g. `python -c \"import secrets; print(secrets.token_urlsafe(48))\"`) before starting."
+        )
+    if len(settings.auth_secret_key) < settings.min_auth_secret_length:
+        raise RuntimeError(
+            f"AUTH_SECRET_KEY must be at least {settings.min_auth_secret_length} characters; "
+            f"got {len(settings.auth_secret_key)}."
+        )

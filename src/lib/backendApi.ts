@@ -7,8 +7,6 @@ type BackendRequestOptions = RequestInit & {
   authToken?: string | null;
 };
 
-type MockLoginRole = "admin" | "doctor";
-
 export type AuthRole = "admin" | "doctor" | "patient";
 
 export type AuthUser = {
@@ -27,10 +25,11 @@ export class BackendRequestError extends Error {
   }
 }
 
-export type MockLoginResponse = {
+export type LoginResponse = {
   accessToken: string;
   expiresAt: string;
   user: AuthUser;
+  mustChangePassword?: boolean;
 };
 
 const authTokenKeys: Record<AuthRole, string> = {
@@ -128,34 +127,26 @@ export async function backendRequest<T>(path: string, options: BackendRequestOpt
   return response.json() as Promise<T>;
 }
 
-async function mockRoleLogin(role: MockLoginRole) {
-  return backendRequest<MockLoginResponse>("/auth/mock-login", {
+export async function loginWithPassword(role: AuthRole, identifier: string, password: string) {
+  const result = await backendRequest<LoginResponse>("/auth/login", {
     authToken: null,
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({ identifier, password, role }),
     method: "POST",
   });
-}
-
-export async function loginDoctorDemo() {
-  const result = await mockRoleLogin("doctor");
-  setDoctorBackendAuthToken(result.accessToken);
+  setBackendAuthTokenForRole(role, result.accessToken);
   return result;
 }
 
-export async function loginAdminDemo() {
-  const result = await mockRoleLogin("admin");
-  setAdminBackendAuthToken(result.accessToken);
-  return result;
+export async function changePassword(role: AuthRole, currentPassword: string, newPassword: string) {
+  await backendRequest<void>("/auth/change-password", {
+    authToken: getBackendAuthTokenForRole(role),
+    body: JSON.stringify({ currentPassword, newPassword }),
+    method: "POST",
+  });
 }
 
 export async function loginAdminWithPassword({ password, username }: { password: string; username: string }) {
-  const result = await backendRequest<MockLoginResponse>("/auth/admin-login", {
-    authToken: null,
-    body: JSON.stringify({ password, username }),
-    method: "POST",
-  });
-  setAdminBackendAuthToken(result.accessToken);
-  return result;
+  return loginWithPassword("admin", username, password);
 }
 
 export function requireDoctorToken() {

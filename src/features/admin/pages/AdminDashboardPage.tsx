@@ -41,7 +41,7 @@ import {
   type AdminUserSummary,
 } from "@/features/admin/api/adminApi";
 import { AdminSidebar, adminSectionLabels, getAdminSection, type AdminSection } from "@/features/admin/components/AdminNavigation";
-import { clearAdminBackendAuthToken, isAuthExpiredError } from "@/lib/backendApi";
+import { BackendRequestError, clearAdminBackendAuthToken, isAuthExpiredError } from "@/lib/backendApi";
 import { cn } from "@/lib/cn";
 
 type UserTab = "patient" | "doctor" | "all";
@@ -557,6 +557,7 @@ function DetailPanel({
 
 function AddUserModal({
   doctors,
+  errorMessage,
   mode,
   onClose,
   onModeChange,
@@ -564,6 +565,7 @@ function AddUserModal({
   pending,
 }: {
   doctors: AdminUserSummary[];
+  errorMessage?: string;
   mode: AddUserMode;
   onClose: () => void;
   onModeChange: (mode: AddUserMode) => void;
@@ -572,6 +574,7 @@ function AddUserModal({
 }) {
   const [name, setName] = useState("");
   const [userId, setUserId] = useState("");
+  const [password, setPassword] = useState("");
   const [specialty, setSpecialty] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
@@ -590,6 +593,7 @@ function AddUserModal({
       phone: phone || undefined,
       role: mode,
       specialty: mode === "doctor" ? specialty || undefined : undefined,
+      temporaryPassword: password.trim() || undefined,
       userId: userId || undefined,
     });
   }
@@ -622,7 +626,21 @@ function AddUserModal({
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <Input label="Name" name="name" onChange={(event) => setName(event.target.value)} required value={name} />
-          <Input label="User ID" name="userId" onChange={(event) => setUserId(event.target.value)} placeholder={mode === "patient" ? "P-1008" : "D-2004"} value={userId} />
+          <Input label="User ID (login)" name="userId" onChange={(event) => setUserId(event.target.value)} placeholder={mode === "patient" ? "P-1008" : "D-2004"} value={userId} />
+          <div className="space-y-1.5 sm:col-span-2">
+            <Input
+              autoComplete="new-password"
+              label="Password"
+              name="temporaryPassword"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Leave blank to auto-generate"
+              type="text"
+              value={password}
+            />
+            <span className="block text-xs text-slate-500">
+              At least 12 characters, mixing 3 of: lowercase, uppercase, digit, symbol. The user must change it at first login.
+            </span>
+          </div>
           {mode === "patient" ? (
             <>
               <Input label="Age" name="age" onChange={(event) => setAge(event.target.value)} type="number" value={age} />
@@ -644,6 +662,10 @@ function AddUserModal({
           <Input label="Phone" name="phone" onChange={(event) => setPhone(event.target.value)} value={phone} />
         </div>
 
+        {errorMessage ? (
+          <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMessage}</p>
+        ) : null}
+
         <div className="mt-6 flex justify-end gap-3">
           <Button onClick={onClose} type="button" variant="outline">Cancel</Button>
           <Button disabled={pending} icon={<Plus className="h-4 w-4" />} type="submit">
@@ -651,6 +673,40 @@ function AddUserModal({
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function NewCredentialsModal({
+  notice,
+  onClose,
+}: {
+  notice: { loginId: string; name: string; password: string };
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl">
+        <h2 className="text-xl font-bold text-slate-950">User created</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Share these credentials with {notice.name} through a trusted channel. The password is shown once and cannot be retrieved later. They must change it at first login.
+        </p>
+
+        <dl className="mt-5 space-y-3">
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+            <dt className="text-xs font-medium text-slate-500">Login ID</dt>
+            <dd className="mt-0.5 font-mono text-sm font-semibold text-slate-900">{notice.loginId}</dd>
+          </div>
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+            <dt className="text-xs font-medium text-slate-500">Temporary password</dt>
+            <dd className="mt-0.5 font-mono text-sm font-semibold text-slate-900">{notice.password || "(unavailable)"}</dd>
+          </div>
+        </dl>
+
+        <div className="mt-6 flex justify-end">
+          <Button onClick={onClose} type="button">Done</Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -666,6 +722,7 @@ export function AdminDashboardPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [addMode, setAddMode] = useState<AddUserMode>("patient");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [credentialNotice, setCredentialNotice] = useState<{ loginId: string; name: string; password: string } | null>(null);
 
   const usersQuery = useQuery({
     queryFn: getAdminUsers,
@@ -687,10 +744,17 @@ export function AdminDashboardPage() {
 
   const createUserMutation = useMutation({
     mutationFn: createAdminUser,
-    onSuccess: (created) => {
+    onSuccess: (created, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       setSelectedUserId(created.id);
       setIsAddOpen(false);
+      // Surface the initial login credentials once. A backend-generated password is
+      // returned on `created`; an admin-supplied one is echoed back to us here only.
+      setCredentialNotice({
+        loginId: created.publicId ?? variables.userId ?? created.id,
+        name: created.name,
+        password: variables.temporaryPassword ?? created.temporaryPassword ?? "",
+      });
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
         next.set("section", "users");
@@ -700,6 +764,13 @@ export function AdminDashboardPage() {
       });
     },
   });
+
+  const createUserErrorMessage =
+    createUserMutation.error instanceof BackendRequestError
+      ? createUserMutation.error.message
+      : createUserMutation.error
+        ? "Could not create the user. Please try again."
+        : undefined;
 
   useEffect(() => {
     const error = usersQuery.error ?? detailQuery.error ?? overviewQuery.error;
@@ -769,6 +840,7 @@ export function AdminDashboardPage() {
   function openCreateUser(mode: AddUserMode) {
     setAddMode(mode);
     setIsAddOpen(true);
+    createUserMutation.reset();
     updateDashboardParams({ create: mode, section: "users" });
   }
 
@@ -928,9 +1000,14 @@ export function AdminDashboardPage() {
         </section>
       </div>
 
+      {credentialNotice ? (
+        <NewCredentialsModal notice={credentialNotice} onClose={() => setCredentialNotice(null)} />
+      ) : null}
+
       {isAddOpen ? (
         <AddUserModal
           doctors={doctors}
+          errorMessage={createUserErrorMessage}
           mode={addMode}
           onClose={closeCreateUser}
           onModeChange={setAddMode}

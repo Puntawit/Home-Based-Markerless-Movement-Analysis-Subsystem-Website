@@ -32,14 +32,15 @@ AnalysisStatus = Literal["not_started", "processing", "completed", "failed"]
 AnalysisJobStatus = Literal["queued", "processing", "completed", "failed"]
 
 
-class MockLoginRequest(BaseModel):
-    role: Literal["patient", "doctor", "admin"] = "patient"
-    patientId: str | None = None
-
-
-class AdminLoginRequest(BaseModel):
-    username: str
+class LoginRequest(BaseModel):
+    identifier: str
     password: str
+    role: Literal["patient", "doctor", "admin"] | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    currentPassword: str
+    newPassword: str
 
 
 class UserResponse(BaseModel):
@@ -49,10 +50,11 @@ class UserResponse(BaseModel):
     displayName: str
 
 
-class MockLoginResponse(BaseModel):
+class LoginResponse(BaseModel):
     accessToken: str
     expiresAt: str
     user: UserResponse
+    mustChangePassword: bool = False
 
 
 class UploadResponse(BaseModel):
@@ -300,10 +302,12 @@ class AdminCreateUserRequest(BaseModel):
     email: str | None = None
     phone: str | None = None
     assignedDoctorId: str | None = None
+    temporaryPassword: str | None = None
 
 
 class AdminUserSummary(BaseModel):
     id: str
+    publicId: str | None = None
     role: AdminUserRole
     name: str
     subtitle: str | None = None
@@ -311,6 +315,9 @@ class AdminUserSummary(BaseModel):
     lastSessionAt: str | None = None
     status: AdminUserStatus
     riskLevel: RiskLevel = "unknown"
+    # Returned exactly once, when the backend generated the password. Never stored
+    # in plaintext and never echoed by any other endpoint.
+    temporaryPassword: str | None = None
 
 
 class AdminUsersResponse(BaseModel):

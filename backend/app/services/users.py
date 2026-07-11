@@ -12,9 +12,14 @@ def normalize_public_id(value: str) -> str:
 
 
 def build_demo_users() -> list[dict[str, Any]]:
+    from app.core.auth import hash_password  # local import: core.auth imports this module
+
     settings = get_settings()
     now = utc_now()
     users: list[dict[str, Any]] = []
+    # Empty in production, so seeded users get no usable password and are
+    # refused at login until an operator provisions one.
+    seed_hash = hash_password(settings.demo_login_password) if settings.demo_login_password else None
 
     for public_id in sorted(settings.demo_patient_ids):
         assigned_doctor = None
@@ -30,7 +35,9 @@ def build_demo_users() -> list[dict[str, Any]]:
                 "name": public_id,
                 "email": None,
                 "phone": None,
-                "passwordHash": None,
+                "passwordHash": seed_hash,
+                "mustChangePassword": False,
+                "passwordUpdatedAt": now if seed_hash else None,
                 "status": "active",
                 "assignedDoctorId": assigned_doctor,
                 "profile": {"age": None, "gender": None, "specialty": None},
@@ -48,7 +55,9 @@ def build_demo_users() -> list[dict[str, Any]]:
                 "name": "Dr. Demo" if public_id == "DOCTOR-DEMO" else public_id,
                 "email": None,
                 "phone": None,
-                "passwordHash": None,
+                "passwordHash": seed_hash,
+                "mustChangePassword": False,
+                "passwordUpdatedAt": now if seed_hash else None,
                 "status": "active",
                 "assignedDoctorId": None,
                 "profile": {"age": None, "gender": None, "specialty": "Rehabilitation"},
@@ -66,7 +75,12 @@ def build_demo_users() -> list[dict[str, Any]]:
                 "name": "Admin",
                 "email": None,
                 "phone": None,
+                # Deliberately no seeded hash: the admin authenticates against
+                # ADMIN_PASSWORD_HASH until an operator sets a real one, which keeps
+                # the bootstrap path exercised on every fresh database.
                 "passwordHash": None,
+                "mustChangePassword": False,
+                "passwordUpdatedAt": None,
                 "status": "active",
                 "assignedDoctorId": None,
                 "profile": {"age": None, "gender": None, "specialty": None},
@@ -123,7 +137,11 @@ async def migrate_admin_users_if_needed(db: AsyncIOMotorDatabase) -> None:
                 "name": document.get("name") or public_id,
                 "email": document.get("email"),
                 "phone": document.get("phone"),
+                # Migrated users have no credential; an operator must set one via
+                # scripts/manage_auth.py before they can log in.
                 "passwordHash": None,
+                "mustChangePassword": True,
+                "passwordUpdatedAt": None,
                 "status": "inactive" if document.get("status") == "inactive" else "active",
                 "assignedDoctorId": assigned_doctor["userId"] if assigned_doctor else assigned_doctor_public_id,
                 "profile": {
@@ -160,6 +178,34 @@ async def require_active_user(db: AsyncIOMotorDatabase, *, role: str, identifier
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
     if user.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive.")
+    return user
+
+
+async def set_user_password(
+    db: AsyncIOMotorDatabase,
+    *,
+    identifier: str,
+    password: str,
+    must_change: bool = True,
+) -> dict[str, Any]:
+    from app.core.auth import hash_password, validate_password_policy  # local import: avoids cycle
+
+    validate_password_policy(password)
+    user = await find_user_for_reference(db, identifier)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    now = utc_now()
+    await db.users.update_one(
+        {"userId": user["userId"]},
+        {
+            "$set": {
+                "passwordHash": hash_password(password),
+                "mustChangePassword": must_change,
+                "passwordUpdatedAt": now,
+                "updatedAt": now,
+            }
+        },
+    )
     return user
 
 

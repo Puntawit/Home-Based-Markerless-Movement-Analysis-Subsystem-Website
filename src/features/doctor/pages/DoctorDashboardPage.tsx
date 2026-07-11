@@ -13,7 +13,6 @@ import {
   LogOut,
   Plus,
   Play,
-  RefreshCw,
   Search,
   Send,
   SlidersHorizontal,
@@ -36,7 +35,6 @@ import {
   createDoctorSession,
   getDoctorPatients,
   getDoctorTaskVideoUrl,
-  retryAnalysisJob,
   submitDoctorFeedback,
 } from "@/features/doctor/api/doctorApi";
 import { formatShortDate } from "@/lib/formatDate";
@@ -129,10 +127,9 @@ export function DoctorDashboardPage() {
     queryFn: getDoctorPatients,
   });
   const [query, setQuery] = useState("");
-  const [selectedPatientId, setSelectedPatientId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [expandedPatientId, setExpandedPatientId] = useState("");
+  const [expandedPatientIds, setExpandedPatientIds] = useState<Set<string>>(new Set());
   const [showAddSession, setShowAddSession] = useState(false);
   const [addSessionPatientId, setAddSessionPatientId] = useState("");
   const [addSessionInstructions, setAddSessionInstructions] = useState("");
@@ -161,6 +158,7 @@ export function DoctorDashboardPage() {
   );
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hasAutoExpandedRef = useRef(false);
   const [duration, setDuration] = useState(0);
   const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
 
@@ -177,10 +175,6 @@ export function DoctorDashboardPage() {
 
   const feedbackMutation = useMutation({
     mutationFn: submitDoctorFeedback,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["doctor", "sessions"] }),
-  });
-  const retryMutation = useMutation({
-    mutationFn: retryAnalysisJob,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["doctor", "sessions"] }),
   });
   const createSessionMutation = useMutation({
@@ -201,7 +195,9 @@ export function DoctorDashboardPage() {
     );
   }, [doctorPatients, query]);
 
-  const selectedPatient = doctorPatients.find((patient) => patient.id === selectedPatientId) ?? doctorPatients[0];
+  const selectedPatient =
+    doctorPatients.find((patient) => patient.sessions.some((session) => session.id === selectedSessionId)) ??
+    doctorPatients[0];
   const selectedSession =
     selectedPatient?.sessions.find((session) => session.id === selectedSessionId) ?? selectedPatient?.sessions[0];
   const selectedTask =
@@ -215,9 +211,10 @@ export function DoctorDashboardPage() {
   });
 
   useEffect(() => {
-    if (expandedPatientId || doctorPatients.length === 0) return;
-    setExpandedPatientId(doctorPatients[0].id);
-  }, [doctorPatients, expandedPatientId]);
+    if (hasAutoExpandedRef.current || doctorPatients.length === 0) return;
+    hasAutoExpandedRef.current = true;
+    setExpandedPatientIds((current) => new Set(current).add(doctorPatients[0].id));
+  }, [doctorPatients]);
 
   // Sync video state and reset on task change
   useEffect(() => {
@@ -231,7 +228,7 @@ export function DoctorDashboardPage() {
     if (selectedTask) {
       setRetakeSelectedTask(selectedTask.riskLevel === "high" || (selectedTask.qualityScore ?? 100) < 80);
     }
-  }, [selectedPatientId, selectedSessionId, selectedTaskId, selectedTask]);
+  }, [selectedSessionId, selectedTaskId, selectedTask]);
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = e.currentTarget;
@@ -360,7 +357,6 @@ export function DoctorDashboardPage() {
     : "N/A";
 
   const canSendFeedback = selectedSession.status === "pending_review" || selectedSession.status === "reviewed";
-  const canRetry = selectedSession.status === "analysis_failed";
 
   const recommendations = recommendationsText
     .split(/\r?\n/)
@@ -410,26 +406,21 @@ export function DoctorDashboardPage() {
   const isFeedbackEmpty = clinicalSummary.trim() === "" && patientSummary.trim() === "";
   const isSendDisabled = !canSendFeedback || feedbackMutation.isPending || isFeedbackEmpty;
 
-  function handleSelectPatient(patientId: string) {
-    const patient = doctorPatients.find((item) => item.id === patientId);
-    const nextSession = patient?.sessions[0];
-    const isCurrentPatient = selectedPatient?.id === patientId;
-
-    if (isCurrentPatient) {
-      setExpandedPatientId((currentPatientId) => (currentPatientId === patientId ? "" : patientId));
-      return;
-    }
-
-    setSelectedPatientId(patientId);
-    setSelectedSessionId(nextSession?.id ?? "");
-    setSelectedTaskId(nextSession?.tasks[0]?.id ?? "");
-    setExpandedPatientId(patientId);
+  function handleTogglePatientExpanded(patientId: string) {
+    setExpandedPatientIds((current) => {
+      const next = new Set(current);
+      if (next.has(patientId)) {
+        next.delete(patientId);
+      } else {
+        next.add(patientId);
+      }
+      return next;
+    });
   }
 
-  function handleSelectSession(sessionId: string) {
-    const session = selectedPatient.sessions.find((item) => item.id === sessionId);
-    setSelectedSessionId(sessionId);
-    setSelectedTaskId(session?.tasks[0]?.id ?? "");
+  function handleSelectSession(session: DoctorSession) {
+    setSelectedSessionId(session.id);
+    setSelectedTaskId(session.tasks[0]?.id ?? "");
   }
 
   function handleSelectTask(taskId: string) {
@@ -480,10 +471,6 @@ export function DoctorDashboardPage() {
           </div>
         </header>
 
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Demo mode: authentication uses local mock tokens that expire based on the backend TTL. Sign in again when a session expires.
-        </p>
-
         {showAddSession ? (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
@@ -530,46 +517,6 @@ export function DoctorDashboardPage() {
           </div>
         ) : null}
 
-        {selectedSession.status === "analysis_failed" ? (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">Analysis failed</p>
-                <p className="mt-1 leading-6">{selectedSession.analysisJobError ?? "MediaPipe analysis failed."}</p>
-              </div>
-              {canRetry ? (
-                <Button
-                  disabled={retryMutation.isPending}
-                  icon={<RefreshCw className="h-4 w-4" />}
-                  onClick={() => retryMutation.mutate(selectedSession.analysisJobId ?? selectedSession.id)}
-                  size="sm"
-                  variant="outline"
-                >
-                  Retry
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {["assigned", "draft", "ready_to_submit"].includes(selectedSession.status) ? (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-6 text-blue-950">
-            <p className="text-lg font-semibold">Waiting for patient recording</p>
-            <p className="mt-2 text-sm leading-6">
-              This session has been assigned to the patient. Review, video playback, and feedback controls will be available after the patient records all assigned tasks and submits the session.
-            </p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {selectedSession.tasks.map((task) => (
-                <div className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm" key={task.id}>
-                  <p className="font-semibold text-slate-900">{task.taskLabel}</p>
-                  <p className="text-slate-500">{task.fileId ? "Recorded" : "Waiting for video"}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-
         <div className="grid flex-1 gap-4 xl:grid-cols-[340px_minmax(520px,1fr)_430px]">
           <aside className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="space-y-5 border-b border-slate-100 p-4">
@@ -604,8 +551,7 @@ export function DoctorDashboardPage() {
               ) : (
                 filteredPatients.map((patient) => {
                   const latestSession = getLatestSession(patient);
-                  const isSelectedPatient = selectedPatient.id === patient.id;
-                  const isExpandedPatient = expandedPatientId === patient.id;
+                  const isExpandedPatient = expandedPatientIds.has(patient.id);
                   const sessionListId = `patient-sessions-${patient.id}`;
 
                   return (
@@ -613,29 +559,19 @@ export function DoctorDashboardPage() {
                       <div
                         aria-controls={latestSession ? sessionListId : undefined}
                         aria-expanded={latestSession ? isExpandedPatient : undefined}
-                        className={cn(
-                          "w-full cursor-pointer rounded-lg border p-4 text-left transition",
-                          isSelectedPatient
-                            ? "border-cyan-500 bg-cyan-50 shadow-sm"
-                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                        )}
-                        onClick={() => handleSelectPatient(patient.id)}
+                        className="w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-4 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                        onClick={() => handleTogglePatientExpanded(patient.id)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            handleSelectPatient(patient.id);
+                            handleTogglePatientExpanded(patient.id);
                           }
                         }}
                         role="button"
                         tabIndex={0}
                       >
                         <div className="flex items-center gap-3">
-                          <span
-                            className={cn(
-                              "flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold",
-                              isSelectedPatient ? "bg-cyan-100 text-cyan-700" : "bg-slate-100 text-slate-600",
-                            )}
-                          >
+                          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg font-semibold text-slate-600">
                             {getPatientInitials(patient)}
                           </span>
                           <div className="min-w-0 flex-1">
@@ -647,11 +583,9 @@ export function DoctorDashboardPage() {
                                 <span
                                   className={cn(
                                     "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
-                                    isSelectedPatient
-                                      ? "bg-cyan-100 text-cyan-700"
-                                      : latestSession.status === "analysis_failed"
-                                        ? "bg-rose-50 text-rose-700"
-                                        : "bg-amber-50 text-amber-700",
+                                    latestSession.status === "analysis_failed"
+                                      ? "bg-rose-50 text-rose-700"
+                                      : "bg-amber-50 text-amber-700",
                                   )}
                                 >
                                   {formatSessionCount(patient.sessions.length)}
@@ -671,14 +605,14 @@ export function DoctorDashboardPage() {
                                 </Button>
                               )}
                             </div>
-                            {isSelectedPatient && latestSession ? (
+                            {latestSession ? (
                               <p className="mt-2 text-xs text-slate-600">
                                 Last update {formatShortDate(latestSession.createdAt)}
                               </p>
                             ) : null}
                           </div>
                           {latestSession ? (
-                            isSelectedPatient && isExpandedPatient ? (
+                            isExpandedPatient ? (
                               <ChevronDown className="h-5 w-5 shrink-0 text-slate-500" />
                             ) : (
                               <ChevronRight className="h-5 w-5 shrink-0 text-slate-500" />
@@ -698,7 +632,7 @@ export function DoctorDashboardPage() {
                               <SessionListButton
                                 isSelected={selectedSession.id === session.id}
                                 key={session.id}
-                                onSelect={() => handleSelectSession(session.id)}
+                                onSelect={() => handleSelectSession(session)}
                                 session={session}
                               />
                             ))}
@@ -712,7 +646,22 @@ export function DoctorDashboardPage() {
             </div>
           </aside>
 
-          {selectedSession.tasks.length === 0 ? (
+          {["assigned", "draft", "ready_to_submit"].includes(selectedSession.status) ? (
+            <div className="col-span-1 rounded-lg border border-blue-200 bg-blue-50 p-6 text-blue-950 xl:col-span-2">
+              <p className="text-lg font-semibold">Waiting for patient recording</p>
+              <p className="mt-2 text-sm leading-6">
+                This session has been assigned to the patient. Review, video playback, and feedback controls will be available after the patient records all assigned tasks and submits the session.
+              </p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {selectedSession.tasks.map((task) => (
+                  <div className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm" key={task.id}>
+                    <p className="font-semibold text-slate-900">{task.taskLabel}</p>
+                    <p className="text-slate-500">{task.fileId ? "Recorded" : "Waiting for video"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : selectedSession.tasks.length === 0 ? (
             <div className="col-span-1 xl:col-span-2 flex h-[500px] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center shadow-sm">
               <AlertTriangle className="mx-auto h-12 w-12 text-slate-400" />
               <h3 className="mt-4 text-lg font-semibold text-slate-950">No tasks in this session</h3>
@@ -1003,7 +952,6 @@ export function DoctorDashboardPage() {
             </>
           )}
         </div>
-        )}
       </div>
     </main>
   );

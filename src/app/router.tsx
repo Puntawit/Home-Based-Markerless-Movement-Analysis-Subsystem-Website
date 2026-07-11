@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AuthLoadingScreen } from "@/app/AuthLoadingScreen";
 import { AuthLoginPage } from "@/app/AuthLoginPage";
+import { ChangePasswordPage } from "@/app/ChangePasswordPage";
 import { LandingPage } from "@/app/LandingPage";
 import { ProtectedRoute } from "@/app/ProtectedRoute";
 import { PatientLayout } from "@/features/patient/components/PatientLayout";
@@ -50,6 +51,7 @@ const pageLoading = <AuthLoadingScreen message="กำลังโหลดห�
 export const router = createBrowserRouter([
   { path: "/", element: <LandingPage /> },
   { path: "/auth/login", element: <AuthLoginPage /> },
+  { path: "/auth/change-password", element: <ChangePasswordPage /> },
   {
     path: "/patient",
     element: <PatientLayout />,

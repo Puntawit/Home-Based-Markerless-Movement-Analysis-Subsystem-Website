@@ -8,8 +8,7 @@ import { AuthLoadingScreen } from "@/app/AuthLoadingScreen";
 import { useValidatedRoleSession } from "@/app/useValidatedRoleSession";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { mockLogin } from "@/features/patient/api/patientApi";
-import { loginDoctorDemo } from "@/lib/backendApi";
+import { BackendRequestError, loginWithPassword } from "@/lib/backendApi";
 import type { AuthRole } from "@/lib/backendApi";
 
 type LoginType = Extract<AuthRole, "doctor" | "patient">;
@@ -30,7 +29,7 @@ const loginCopy: Record<LoginType, {
     alternateType: "patient",
     icon: Stethoscope,
     idLabel: "รหัสแพทย์",
-    idPlaceholder: "DOCTOR-DEMO",
+    idPlaceholder: "กรอกรหัสแพทย์",
     pendingLabel: "กำลังเข้าสู่ระบบ...",
     submitLabel: "เข้าสู่ระบบแพทย์",
     subtitle: "สำหรับแพทย์ที่ต้องตรวจผลและส่งคำแนะนำให้ผู้ป่วย",
@@ -41,7 +40,7 @@ const loginCopy: Record<LoginType, {
     alternateType: "doctor",
     icon: UserRound,
     idLabel: "รหัสผู้ป่วย",
-    idPlaceholder: "PATIENT-7712",
+    idPlaceholder: "กรอกรหัสผู้ป่วย",
     pendingLabel: "กำลังเข้าสู่ระบบ...",
     submitLabel: "เข้าสู่ระบบผู้ป่วย",
     subtitle: "สำหรับผู้ป่วยที่ต้องบันทึกหรืออัปโหลดวิดีโอการเคลื่อนไหว",
@@ -53,18 +52,14 @@ function getLoginType(value: string | null): LoginType | null {
   return value === "doctor" || value === "patient" ? value : null;
 }
 
-function getDefaultId(type: LoginType) {
-  return type === "patient" ? "PATIENT-7712" : "DOCTOR-DEMO";
-}
-
 export function AuthLoginPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const loginType = getLoginType(searchParams.get("type"));
-  const [patientId, setPatientId] = useState("PATIENT-7712");
-  const [doctorId, setDoctorId] = useState("DOCTOR-DEMO");
+  const [patientId, setPatientId] = useState("");
+  const [doctorId, setDoctorId] = useState("");
   const [password, setPassword] = useState("");
 
   const activeLoginType = loginType ?? "patient";
@@ -83,25 +78,37 @@ export function AuthLoginPage() {
         throw new Error("กรุณาเลือกประเภทผู้ใช้งานก่อนเข้าสู่ระบบ");
       }
 
-      if (loginType === "patient") {
-        const trimmedPatientId = patientId.trim();
-        if (!trimmedPatientId) {
-          throw new Error("กรุณากรอกรหัสผู้ป่วย");
-        }
-        return mockLogin(trimmedPatientId);
+      const identifier = (loginType === "patient" ? patientId : doctorId).trim();
+      if (!identifier) {
+        throw new Error(loginType === "patient" ? "กรุณากรอกรหัสผู้ป่วย" : "กรุณากรอกรหัสแพทย์");
       }
-
-      if (!doctorId.trim()) {
-        throw new Error("กรุณากรอกรหัสแพทย์");
+      if (!password) {
+        throw new Error("กรุณากรอกรหัสผ่าน");
       }
-      return loginDoctorDemo();
+      return loginWithPassword(loginType, identifier, password);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       if (!loginType) return;
       queryClient.removeQueries({ queryKey: [loginType] });
+      if (result.mustChangePassword) {
+        navigate(`/auth/change-password?type=${loginType}`, { replace: true });
+        return;
+      }
       navigate(loginType === "patient" ? "/patient" : "/doctor", { replace: true });
     },
   });
+
+  const loginErrorMessage = useMemo(() => {
+    const error = loginMutation.error;
+    if (!error) return "";
+    if (error instanceof BackendRequestError) {
+      if (error.status === 401) return "รหัสผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+      if (error.status === 403) return "บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
+      if (error.status === 429) return "พยายามเข้าสู่ระบบหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่";
+    }
+    if (error instanceof Error) return error.message;
+    return "ไม่สามารถเข้าสู่ระบบได้ กรุณาตรวจสอบว่า backend ทำงานอยู่";
+  }, [loginMutation.error]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -164,10 +171,11 @@ export function AuthLoginPage() {
             />
             <Input
               className="h-14 rounded-lg text-lg"
+              data-testid={`${loginType}-password`}
               label="รหัสผ่าน"
               name="password"
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={loginType === "patient" ? getDefaultId(loginType) : "บัญชี demo ยังไม่ตรวจรหัสผ่าน"}
+              placeholder="กรอกรหัสผ่านของคุณ"
               type="password"
               value={password}
             />
@@ -191,10 +199,11 @@ export function AuthLoginPage() {
               {copy.alternateLabel}
             </Button>
             {loginMutation.isError ? (
-              <p className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-base leading-6 text-rose-800">
-                {loginMutation.error instanceof Error
-                  ? loginMutation.error.message
-                  : "ไม่สามารถเข้าสู่ระบบได้ กรุณาตรวจสอบว่า backend ทำงานอยู่"}
+              <p
+                className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-base leading-6 text-rose-800"
+                data-testid="login-error"
+              >
+                {loginErrorMessage}
               </p>
             ) : null}
           </form>

@@ -1,147 +1,186 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.core.auth import CurrentUser, create_access_token, get_current_user, verify_password
+from app.core.auth import (
+    CurrentUser,
+    create_access_token,
+    get_current_user,
+    hash_password,
+    validate_password_policy,
+    verify_password,
+)
 from app.core.config import get_settings
 from app.db.mongo import get_db
-from app.schemas import AdminLoginRequest, MockLoginRequest, MockLoginResponse, UserResponse
+from app.schemas import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    UserResponse,
+)
 from app.services.audit import audit_event
-from app.services.users import require_active_user
+from app.services.common import utc_now
+from app.services.login_throttle import clear_failures, enforce_not_locked, record_failure
+from app.services.users import find_user_for_reference
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/admin-login", response_model=MockLoginResponse)
-async def admin_login(payload: AdminLoginRequest, request: Request) -> MockLoginResponse:
+async def _resolve_login_user(db, identifier: str, role: str | None) -> dict[str, Any] | None:
+    user = await find_user_for_reference(db, identifier)
+    if user:
+        return user
+    # The bootstrap admin logs in with ADMIN_USERNAME, which is not a publicId.
     settings = get_settings()
+    if role in (None, "admin") and identifier == settings.admin_username and settings.demo_admin_ids:
+        return await find_user_for_reference(db, sorted(settings.demo_admin_ids)[0])
+    return None
+
+
+def _stored_password_hash(user: dict[str, Any], identifier: str) -> str | None:
+    """Resolve the hash to verify against.
+
+    Falls back to ADMIN_PASSWORD_HASH so an operator can always log in on a fresh
+    or legacy database (where every user has passwordHash=None) and provision the
+    real credentials from there.
+    """
+    stored = user.get("passwordHash")
+    if stored:
+        return stored
+    settings = get_settings()
+    if user.get("role") == "admin" and settings.admin_password_hash and identifier == settings.admin_username:
+        return settings.admin_password_hash
+    return None
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(payload: LoginRequest, request: Request) -> LoginResponse:
     db = get_db()
-    username = payload.username.strip()
-    admin_public_id = sorted(settings.demo_admin_ids)[0]
-    admin = await require_active_user(db, role="admin", identifier=admin_public_id)
+    identifier = payload.identifier.strip()
+    # Wrong password, unknown user, and "no password set" must be indistinguishable
+    # to the client. The real reason is recorded in the audit log instead.
+    invalid_credentials = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials."
+    )
 
-    if not settings.admin_password_hash:
+    await enforce_not_locked(db, identifier, request)
+
+    async def deny(reason: str) -> None:
+        await record_failure(db, identifier, request)
         await audit_event(
-            action="auth.admin_login",
+            action="auth.login",
             outcome="denied",
             request=request,
-            resource_type="admin",
-            resource_id=username or None,
-            details={"reason": "missing_password_hash"},
+            resource_type="user",
+            resource_id=identifier or None,
+            details={"reason": reason},
         )
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Admin password hash is not configured.")
 
-    if username != settings.admin_username or not verify_password(payload.password, settings.admin_password_hash):
+    user = await _resolve_login_user(db, identifier, payload.role)
+    if not user or (payload.role and user.get("role") != payload.role):
+        await deny("unknown_user")
+        raise invalid_credentials
+
+    stored = _stored_password_hash(user, identifier)
+    if not stored:
+        await deny("password_not_set")
+        raise invalid_credentials
+
+    if not verify_password(payload.password, stored):
+        await deny("bad_password")
+        raise invalid_credentials
+
+    if user.get("status") != "active":
         await audit_event(
-            action="auth.admin_login",
+            action="auth.login",
             outcome="denied",
             request=request,
-            resource_type="admin",
-            resource_id=username or None,
+            resource_type="user",
+            resource_id=user["userId"],
+            details={"reason": "inactive"},
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin username or password.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive.")
 
+    await clear_failures(db, identifier, request)
+    display_name = user.get("name") or user["publicId"]
     token, expires_at = create_access_token(
-        user_id=admin["userId"],
-        public_id=admin["publicId"],
-        role="admin",
-        display_name=admin.get("name") or "Admin",
+        user_id=user["userId"],
+        public_id=user["publicId"],
+        role=user["role"],
+        display_name=display_name,
     )
     await audit_event(
-        action="auth.admin_login",
+        action="auth.login",
         outcome="success",
         request=request,
-        resource_type="admin",
-        resource_id=admin["userId"],
+        resource_type="user",
+        resource_id=user["userId"],
+        patient_id=user["userId"] if user["role"] == "patient" else None,
     )
-    return MockLoginResponse(
-        accessToken=token,
-        expiresAt=expires_at,
-        user=UserResponse(id=admin["userId"], publicId=admin["publicId"], role="admin", displayName=admin.get("name") or "Admin"),
-    )
-
-
-@router.post("/mock-login", response_model=MockLoginResponse)
-async def mock_login(payload: MockLoginRequest, request: Request) -> MockLoginResponse:
-    settings = get_settings()
-    db = get_db()
-    if payload.role == "admin":
-        admin = await require_active_user(db, role="admin", identifier=sorted(settings.demo_admin_ids)[0])
-        token, expires_at = create_access_token(
-            user_id=admin["userId"],
-            public_id=admin["publicId"],
-            role="admin",
-            display_name=admin.get("name") or "Admin Demo",
-        )
-        await audit_event(
-            action="auth.mock_login",
-            outcome="success",
-            request=request,
-            resource_type="admin",
-            resource_id=admin["userId"],
-        )
-        return MockLoginResponse(
-            accessToken=token,
-            expiresAt=expires_at,
-            user=UserResponse(id=admin["userId"], publicId=admin["publicId"], role="admin", displayName=admin.get("name") or "Admin Demo"),
-        )
-
-    if payload.role == "doctor":
-        doctor = await require_active_user(db, role="doctor", identifier=sorted(settings.demo_doctor_ids)[0])
-        token, expires_at = create_access_token(
-            user_id=doctor["userId"],
-            public_id=doctor["publicId"],
-            role="doctor",
-            display_name=doctor.get("name") or "Dr. Demo",
-        )
-        await audit_event(
-            action="auth.mock_login",
-            outcome="success",
-            request=request,
-            resource_type="doctor",
-            resource_id=doctor["userId"],
-        )
-        return MockLoginResponse(
-            accessToken=token,
-            expiresAt=expires_at,
-            user=UserResponse(id=doctor["userId"], publicId=doctor["publicId"], role="doctor", displayName=doctor.get("name") or "Dr. Demo"),
-        )
-
-    patient_id = payload.patientId.strip().upper() if payload.patientId else "PATIENT-7712"
-    if not patient_id:
-        patient_id = "PATIENT-7712"
-    if patient_id not in settings.demo_patient_ids:
-        await audit_event(
-            action="auth.mock_login",
-            outcome="denied",
-            request=request,
-            resource_type="patient",
-            resource_id=patient_id or None,
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Patient is not allowed for this demo.")
-
-    patient = await require_active_user(db, role="patient", identifier=patient_id)
-    token, expires_at = create_access_token(
-        user_id=patient["userId"],
-        public_id=patient["publicId"],
-        role="patient",
-        display_name=patient.get("name") or patient["publicId"],
-    )
-    await audit_event(
-        action="auth.mock_login",
-        outcome="success",
-        request=request,
-        resource_type="patient",
-        resource_id=patient["userId"],
-        patient_id=patient["userId"],
-    )
-    return MockLoginResponse(
+    return LoginResponse(
         accessToken=token,
         expiresAt=expires_at,
         user=UserResponse(
-            id=patient["userId"],
-            publicId=patient["publicId"],
-            role="patient",
-            displayName=patient.get("name") or patient["publicId"],
+            id=user["userId"],
+            publicId=user["publicId"],
+            role=user["role"],
+            displayName=display_name,
         ),
+        mustChangePassword=bool(user.get("mustChangePassword")),
+    )
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+) -> None:
+    db = get_db()
+    document = await find_user_for_reference(db, user.id)
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    settings = get_settings()
+    stored = document.get("passwordHash") or (
+        settings.admin_password_hash if document.get("role") == "admin" else None
+    )
+    if not stored or not verify_password(payload.currentPassword, stored):
+        await audit_event(
+            action="auth.change_password",
+            outcome="denied",
+            request=request,
+            actor=user,
+            resource_type="user",
+            resource_id=user.id,
+        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect.")
+
+    if payload.newPassword == payload.currentPassword:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="New password must differ from the current one."
+        )
+    validate_password_policy(payload.newPassword)
+
+    now = utc_now()
+    await db.users.update_one(
+        {"userId": document["userId"]},
+        {
+            "$set": {
+                "passwordHash": hash_password(payload.newPassword),
+                "mustChangePassword": False,
+                "passwordUpdatedAt": now,
+                "updatedAt": now,
+            }
+        },
+    )
+    await audit_event(
+        action="auth.change_password",
+        outcome="success",
+        request=request,
+        actor=user,
+        resource_type="user",
+        resource_id=user.id,
     )
 
 

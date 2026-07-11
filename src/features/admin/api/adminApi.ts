@@ -82,6 +82,7 @@ export type AdminUserStatus = "active" | "inactive" | "at_risk";
 
 export type AdminUserSummary = {
   id: string;
+  publicId?: string | null;
   role: AdminUserRole;
   name: string;
   subtitle?: string | null;
@@ -89,6 +90,9 @@ export type AdminUserSummary = {
   lastSessionAt?: string | null;
   status: AdminUserStatus;
   riskLevel: AdminRiskLevel;
+  // Present only in the response to createAdminUser, and only when the backend
+  // generated the password (admin left the field blank).
+  temporaryPassword?: string | null;
 };
 
 export type AdminUsersResponse = {
@@ -107,6 +111,8 @@ export type AdminCreateUserPayload = {
   email?: string;
   phone?: string;
   assignedDoctorId?: string;
+  // Leave undefined to have the backend generate one and return it once.
+  temporaryPassword?: string;
 };
 
 export type AdminVideoSummary = {

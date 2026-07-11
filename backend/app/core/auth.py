@@ -89,10 +89,34 @@ def create_access_token(*, user_id: str, public_id: str, role: str, display_name
     )
 
 
-def hash_password(password: str, *, salt: str | None = None, iterations: int = 390000) -> str:
+def hash_password(password: str, *, salt: str | None = None, iterations: int | None = None) -> str:
+    if iterations is None:
+        iterations = get_settings().pbkdf2_iterations
     password_salt = salt or base64.urlsafe_b64encode(os.urandom(16)).decode("ascii").rstrip("=")
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), password_salt.encode("utf-8"), iterations)
     return f"pbkdf2_sha256${iterations}${password_salt}${_b64url_encode(digest)}"
+
+
+def validate_password_policy(password: str) -> None:
+    settings = get_settings()
+    if len(password) < settings.password_min_length:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Password must be at least {settings.password_min_length} characters.",
+        )
+    classes = sum(
+        [
+            any(char.islower() for char in password),
+            any(char.isupper() for char in password),
+            any(char.isdigit() for char in password),
+            any(not char.isalnum() for char in password),
+        ]
+    )
+    if classes < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must combine at least three of: lowercase, uppercase, digit, symbol.",
+        )
 
 
 def verify_password(password: str, password_hash: str) -> bool:

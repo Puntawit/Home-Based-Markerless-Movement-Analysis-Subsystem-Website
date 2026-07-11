@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_security_settings
 from app.db.mongo import close_mongo_connection, connect_to_mongo
 from app.routers import admin, analysis, auth, doctor, patient, patients, uploads
 from app.schemas import HealthResponse
@@ -18,6 +18,7 @@ from app.db.mongo import get_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    validate_security_settings(settings)
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     await connect_to_mongo()
     db = get_db()

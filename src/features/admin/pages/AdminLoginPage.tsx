@@ -31,8 +31,12 @@ export function AdminLoginPage() {
       }
       return loginAdminWithPassword({ password, username: username.trim() });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.removeQueries({ queryKey: ["admin"] });
+      if (result.mustChangePassword) {
+        navigate("/auth/change-password?type=admin", { replace: true });
+        return;
+      }
       navigate("/admin/dashboard");
     },
   });

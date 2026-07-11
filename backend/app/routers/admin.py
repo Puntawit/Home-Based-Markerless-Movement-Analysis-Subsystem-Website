@@ -1,10 +1,17 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.core.auth import CurrentUser, create_playback_token, get_current_user
+from app.core.auth import (
+    CurrentUser,
+    create_playback_token,
+    get_current_user,
+    hash_password,
+    validate_password_policy,
+)
 from app.core.config import get_settings
 from app.db.mongo import get_db
 from app.schemas import (
@@ -265,6 +272,7 @@ def user_summary_from_user(user_doc: dict[str, Any], latest_session: dict[str, A
     )
     return AdminUserSummary(
         id=str(user_doc.get("userId") or ""),
+        publicId=str(user_doc.get("publicId")) if user_doc.get("publicId") else None,
         role=role,
         name=str(user_doc.get("name") or user_doc.get("publicId") or user_doc.get("userId") or "Unknown User"),
         subtitle=subtitle or user_doc.get("email") or user_doc.get("phone"),
@@ -312,6 +320,14 @@ async def create_admin_user(payload: AdminCreateUserRequest, request: Request, u
     if payload.assignedDoctorId:
         assigned_doctor = await find_user_for_reference(db, payload.assignedDoctorId)
         assigned_doctor_id = assigned_doctor["userId"] if assigned_doctor else payload.assignedDoctorId
+
+    # An admin-supplied password must meet policy; a generated one is returned once
+    # so the admin can hand it over through a trusted channel.
+    generated_password = None if payload.temporaryPassword else secrets.token_urlsafe(12)
+    temporary_password = payload.temporaryPassword or generated_password
+    if payload.temporaryPassword:
+        validate_password_policy(payload.temporaryPassword)
+
     document = {
         "userId": new_uuid(),
         "publicId": public_id,
@@ -319,7 +335,9 @@ async def create_admin_user(payload: AdminCreateUserRequest, request: Request, u
         "name": payload.name.strip(),
         "email": payload.email,
         "phone": payload.phone,
-        "passwordHash": None,
+        "passwordHash": hash_password(temporary_password),
+        "mustChangePassword": True,
+        "passwordUpdatedAt": utc_now(),
         "status": "active",
         "assignedDoctorId": assigned_doctor_id,
         "profile": {"age": payload.age, "gender": payload.gender, "specialty": payload.specialty},
@@ -329,8 +347,18 @@ async def create_admin_user(payload: AdminCreateUserRequest, request: Request, u
     if not document["name"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required.")
     await db.users.insert_one(document)
-    await audit_event(action="admin.create_user", outcome="success", request=request, actor=user, resource_type="admin_user", resource_id=document["userId"])
-    return user_summary_from_user(document, None, "unknown")
+    await audit_event(
+        action="admin.create_user",
+        outcome="success",
+        request=request,
+        actor=user,
+        resource_type="admin_user",
+        resource_id=document["userId"],
+        details={"passwordSet": True, "generated": generated_password is not None},
+    )
+    summary = user_summary_from_user(document, None, "unknown")
+    summary.temporaryPassword = generated_password
+    return summary
 
 
 def payload_preview(result: dict[str, Any] | None) -> AdminMediaPipePayloadSummary | None:

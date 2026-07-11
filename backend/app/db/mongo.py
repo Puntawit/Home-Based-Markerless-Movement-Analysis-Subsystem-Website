@@ -48,6 +48,10 @@ async def create_indexes() -> None:
     await ensure_partial_unique_string_index(db.feedback, "feedbackId")
     await db.feedback.create_index([("patientId", 1), ("createdAt", -1)])
     await db.feedback.create_index("sessionId")
+    await db.login_attempts.create_index("key", unique=True)
+    # TTL on the lock expiry: the throttle document disappears once the lockout
+    # window passes, which also resets the failure counter.
+    await db.login_attempts.create_index("lockedUntil", expireAfterSeconds=0)
     await db.audit_events.create_index([("timestamp", -1)])
     await db.audit_events.create_index("actorId")
     await db.audit_events.create_index("patientId")

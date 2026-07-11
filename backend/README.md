@@ -49,43 +49,76 @@ UPLOAD_RETENTION_DAYS=30
 
 `UPLOAD_DIR=uploads` stores files in `backend/uploads/` when the server is run from the `backend/` directory.
 
-## Demo Auth And Access Control
+## Auth And Access Control
 
-Patient login:
-
-```http
-POST /auth/mock-login
-```
-
-```json
-{ "role": "patient" }
-```
-
-Doctor login:
-
-```json
-{ "role": "doctor" }
-```
-
-Admin login uses a username and password checked on the backend:
+All roles authenticate through one endpoint with a real password:
 
 ```http
-POST /auth/admin-login
+POST /auth/login
 ```
 
 ```json
-{ "username": "admin", "password": "..." }
+{ "identifier": "PATIENT-7712", "password": "...", "role": "patient" }
 ```
 
-Use the returned signed demo JWT in:
+`identifier` is the user's `publicId` (or internal `userId`). The bootstrap admin
+uses `ADMIN_USERNAME` as its identifier. `role` is optional and, when supplied,
+must match the account.
+
+Use the returned signed JWT in:
 
 ```text
 Authorization: Bearer <accessToken>
 ```
 
-This is still demo-only auth, but tokens are now signed, expire, and resolve to DB-backed records in `users`. Demo IDs from `DEMO_PATIENTS`, `DEMO_DOCTORS`, and `DEMO_ADMINS` are seeded into `users.publicId`, then mapped to internal UUID `users.userId`. Doctor access is enforced through patient `assignedDoctorId`. Admin passwords should be stored only as `ADMIN_PASSWORD_HASH` in local `.env`; do not commit plaintext passwords.
+Change a password (requires a valid token):
 
-Old `mock-token-*` values are no longer accepted. Log in again after upgrading.
+```http
+POST /auth/change-password
+{ "currentPassword": "...", "newPassword": "..." }
+```
+
+The credential-free `POST /auth/mock-login` and the separate `POST /auth/admin-login`
+have been removed.
+
+### Rules worth knowing
+
+- **The app refuses to start** if `AUTH_SECRET_KEY` is unset, still the shipped
+  default, or shorter than 32 characters. There is no override flag.
+- Wrong password, unknown user, and "no password set" all return an identical
+  `401 Invalid credentials.` The real reason is written to `audit_events` only.
+- A user whose `passwordHash` is `null` can never log in. Seeded and migrated
+  users start this way on purpose.
+- After `MAX_FAILED_LOGINS` (default 5) failures an account is locked for
+  `LOCKOUT_MINUTES` (default 15). Tracked per identifier and per client IP in the
+  `login_attempts` collection.
+- Passwords are PBKDF2-SHA256 with `PBKDF2_ITERATIONS` (default 600000). The
+  iteration count is embedded in each hash, so raising it does not invalidate
+  existing passwords.
+- `DEMO_LOGIN_PASSWORD` seeds demo patient/doctor passwords for dev and E2E. Leave
+  it **empty in production** — seeded users then have no usable password.
+
+### Provisioning credentials
+
+Admins create users with a temporary password (generated if not supplied, and
+returned exactly once); the user is forced to change it at first login.
+
+For a fresh or legacy database where every `passwordHash` is `null`, bootstrap with
+the operator CLI:
+
+```bash
+# Generate a hash for ADMIN_PASSWORD_HASH
+uv run python -m scripts.manage_auth hash-password
+
+# Set an existing user's password directly
+uv run python -m scripts.manage_auth set-password --identifier PATIENT-7712
+```
+
+The bootstrap admin authenticates against `ADMIN_PASSWORD_HASH` until a real hash
+exists on its user document, so an operator can always get in to provision others.
+
+Doctor access to a patient is enforced through patient `assignedDoctorId`. Never
+commit plaintext passwords.
 
 ## Admin Overview
 

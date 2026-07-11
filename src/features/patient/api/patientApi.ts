@@ -4,16 +4,7 @@ import type {
   PatientSessionStatus,
   SavePatientSessionTaskPayload,
 } from "@/features/patient/types/patient.types";
-import { backendRequest, setBackendAuthToken } from "@/lib/backendApi";
-
-type MockLoginResponse = {
-  accessToken: string;
-  user: {
-    id: string;
-    role: string;
-    displayName: string;
-  };
-};
+import { backendRequest } from "@/lib/backendApi";
 
 type UploadResponse = {
   fileId: string;
@@ -50,15 +41,6 @@ function normalizeFeedback(feedback: DoctorFeedback | null): DoctorFeedback | nu
       escalationNote: "Contact the clinic if symptoms worsen.",
     },
   };
-}
-
-export async function mockLogin(patientId: string) {
-  const result = await backendRequest<MockLoginResponse>("/auth/mock-login", {
-    body: JSON.stringify({ role: "patient", patientId }),
-    method: "POST",
-  });
-  setBackendAuthToken(result.accessToken);
-  return { patientName: result.user.displayName, patientId: result.user.id };
 }
 
 export async function uploadPatientVideo(file: File) {
