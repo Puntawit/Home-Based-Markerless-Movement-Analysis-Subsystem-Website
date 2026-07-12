@@ -15,11 +15,16 @@ router = APIRouter(prefix="/doctor", tags=["doctor"])
 async def hydrate_session(session: dict) -> dict:
     db = get_db()
     session = await hydrate_session_document(db, session)
-    for task in session.get("sessionTasks", []):
+    results_by_id: dict[str, dict | None] = {}
+    for task in [*session.get("sessionTasks", []), *session.get("tasks", [])]:
         result_id = task.get("analysisResultId")
-        if result_id:
-            result = await db.analysis_results.find_one({"analysisResultId": result_id})
-            task["analysisResult"] = public_doc(result)
+        if not result_id:
+            continue
+        if result_id not in results_by_id:
+            results_by_id[result_id] = public_doc(
+                await db.analysis_results.find_one({"analysisResultId": result_id})
+            )
+        task["analysisResult"] = results_by_id[result_id]
     session["tasks"] = session.get("tasks") or []
     return session
 

@@ -305,6 +305,16 @@ class AdminCreateUserRequest(BaseModel):
     temporaryPassword: str | None = None
 
 
+class AdminUpdateUserRequest(BaseModel):
+    name: str
+    specialty: str | None = None
+    age: int | None = None
+    gender: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    assignedDoctorId: str | None = None
+
+
 class AdminUserSummary(BaseModel):
     id: str
     publicId: str | None = None
@@ -315,6 +325,11 @@ class AdminUserSummary(BaseModel):
     lastSessionAt: str | None = None
     status: AdminUserStatus
     riskLevel: RiskLevel = "unknown"
+    age: int | None = None
+    gender: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    specialty: str | None = None
     # Returned exactly once, when the backend generated the password. Never stored
     # in plaintext and never echoed by any other endpoint.
     temporaryPassword: str | None = None

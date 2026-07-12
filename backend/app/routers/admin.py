@@ -26,6 +26,7 @@ from app.schemas import (
     AdminPatientsStats,
     AdminPatientSummary,
     AdminServiceHealth,
+    AdminUpdateUserRequest,
     AdminUploadStats,
     AdminUserCounts,
     AdminUserDetailResponse,
@@ -280,6 +281,11 @@ def user_summary_from_user(user_doc: dict[str, Any], latest_session: dict[str, A
         lastSessionAt=get_latest_time(latest_session),
         status="active" if user_doc.get("status") == "active" else "inactive",
         riskLevel=risk_level,
+        age=profile.get("age") if role == "patient" else None,
+        gender=profile.get("gender") if role == "patient" else None,
+        phone=user_doc.get("phone"),
+        email=user_doc.get("email"),
+        specialty=profile.get("specialty") if role == "doctor" else None,
     )
 
 
@@ -359,6 +365,81 @@ async def create_admin_user(payload: AdminCreateUserRequest, request: Request, u
     summary = user_summary_from_user(document, None, "unknown")
     summary.temporaryPassword = generated_password
     return summary
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserSummary)
+async def update_admin_user(user_id: str, payload: AdminUpdateUserRequest, request: Request, user: CurrentUser = Depends(get_current_user)) -> AdminUserSummary:
+    await ensure_admin_or_audit(action="admin.update_user", request=request, resource_type="admin_user", user=user)
+    db = get_db()
+    target = await find_user_for_reference(db, user_id)
+    if not target or target.get("role") not in ("patient", "doctor"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required.")
+
+    is_patient = target["role"] == "patient"
+    assigned_doctor_id = None
+    if is_patient and payload.assignedDoctorId:
+        assigned_doctor = await find_user_for_reference(db, payload.assignedDoctorId)
+        assigned_doctor_id = assigned_doctor["userId"] if assigned_doctor else payload.assignedDoctorId
+
+    # username (publicId) and password are intentionally excluded from editable fields.
+    update_fields: dict[str, Any] = {
+        "name": name,
+        "email": payload.email,
+        "phone": payload.phone,
+        "profile": {
+            "age": payload.age if is_patient else None,
+            "gender": payload.gender if is_patient else None,
+            "specialty": payload.specialty if not is_patient else None,
+        },
+        "updatedAt": utc_now(),
+    }
+    if is_patient:
+        update_fields["assignedDoctorId"] = assigned_doctor_id
+
+    await db.users.update_one({"userId": target["userId"]}, {"$set": update_fields})
+    updated = await db.users.find_one({"userId": target["userId"]})
+
+    latest_sessions, analysis_results = await load_latest_sessions()
+    session = latest_sessions.get(updated["userId"])
+    await audit_event(
+        action="admin.update_user",
+        outcome="success",
+        request=request,
+        actor=user,
+        resource_type="admin_user",
+        resource_id=target["userId"],
+        patient_id=target["userId"] if is_patient else None,
+    )
+    return user_summary_from_user(updated, session, risk_from_session(session, analysis_results))
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin_user(user_id: str, request: Request, user: CurrentUser = Depends(get_current_user)) -> None:
+    await ensure_admin_or_audit(action="admin.delete_user", request=request, resource_type="admin_user", user=user)
+    db = get_db()
+    target = await find_user_for_reference(db, user_id)
+    if not target or target.get("role") not in ("patient", "doctor"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    await db.users.delete_one({"userId": target["userId"]})
+    if target["role"] == "doctor":
+        await db.users.update_many(
+            {"assignedDoctorId": target["userId"]},
+            {"$set": {"assignedDoctorId": None, "updatedAt": utc_now()}},
+        )
+    await audit_event(
+        action="admin.delete_user",
+        outcome="success",
+        request=request,
+        actor=user,
+        resource_type="admin_user",
+        resource_id=target["userId"],
+        patient_id=target["userId"] if target["role"] == "patient" else None,
+    )
 
 
 def payload_preview(result: dict[str, Any] | None) -> AdminMediaPipePayloadSummary | None:

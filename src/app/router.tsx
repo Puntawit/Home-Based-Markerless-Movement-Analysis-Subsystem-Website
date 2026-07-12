@@ -40,12 +40,6 @@ const AdminLoginPage = lazy(() =>
   })),
 );
 
-const AdminPatientsPage = lazy(() =>
-  import("@/features/admin/pages/AdminPatientsPage").then((module) => ({
-    default: module.AdminPatientsPage,
-  })),
-);
-
 const pageLoading = <AuthLoadingScreen message="กำลังโหลดหน้า..." />;
 
 export const router = createBrowserRouter([
@@ -131,16 +125,6 @@ export const router = createBrowserRouter([
       <ProtectedRoute loginPath="/admin/login" role="admin">
         <Suspense fallback={pageLoading}>
           <AdminDashboardPage />
-        </Suspense>
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: "/admin/patients",
-    element: (
-      <ProtectedRoute loginPath="/admin/login" role="admin">
-        <Suspense fallback={pageLoading}>
-          <AdminPatientsPage />
         </Suspense>
       </ProtectedRoute>
     ),

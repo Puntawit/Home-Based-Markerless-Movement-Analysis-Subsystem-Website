@@ -60,10 +60,6 @@ test("browser flow covers patient upload, doctor feedback, and admin review", as
   await expect(page).toHaveURL(/\/admin\/dashboard/);
   await expect(page.getByTestId("admin-dashboard")).toContainText("PATIENT-7712");
 
-  await page.goto("/admin/dashboard?section=videos&user=PATIENT-7712");
-  await expect(page.getByTestId("admin-section-videos")).toContainText("Movement Videos");
-  await page.goto("/admin/dashboard?section=feedback&user=PATIENT-7712");
-  await expect(page.getByTestId("admin-section-feedback")).toContainText("UI E2E patient summary");
-  await page.goto("/admin/dashboard?section=payload&user=PATIENT-7712");
-  await expect(page.getByTestId("admin-section-payload")).toContainText("fake-mediapipe-e2e");
+  await page.goto("/admin/dashboard?user=PATIENT-7712");
+  await expect(page.getByTestId("admin-dashboard")).toContainText("PATIENT-7712");
 });

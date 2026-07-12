@@ -1,46 +1,39 @@
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  Bell,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Download,
-  Eye,
-  FileText,
-  Filter,
-  HelpCircle,
   LogOut,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
   Stethoscope,
+  Trash2,
   User,
   UserPlus,
   Users,
-  Video,
   X,
 } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import {
   createAdminUser,
-  exportAdminMediaPipePayload,
-  getAdminOverview,
-  getAdminUserDetail,
+  deleteAdminUser,
   getAdminUsers,
+  updateAdminUser,
   type AdminCreateUserPayload,
-  type AdminRiskLevel,
+  type AdminUpdateUserPayload,
   type AdminUserRole,
   type AdminUserStatus,
   type AdminUserSummary,
 } from "@/features/admin/api/adminApi";
-import { AdminSidebar, adminSectionLabels, getAdminSection, type AdminSection } from "@/features/admin/components/AdminNavigation";
+import { AdminSidebar } from "@/features/admin/components/AdminNavigation";
 import { BackendRequestError, clearAdminBackendAuthToken, isAuthExpiredError } from "@/lib/backendApi";
 import { cn } from "@/lib/cn";
 
@@ -49,12 +42,16 @@ type AddUserMode = AdminUserRole;
 
 const pageSize = 10;
 
-const riskBadge: Record<AdminRiskLevel, { label: string; tone: "green" | "yellow" | "red" | "slate" }> = {
-  high: { label: "High Risk", tone: "red" },
-  low: { label: "Processed", tone: "green" },
-  moderate: { label: "At Risk", tone: "yellow" },
-  unknown: { label: "No Result", tone: "slate" },
-};
+const genderOptions = ["Male", "Female"];
+
+const specialtyOptions = [
+  "Physiotherapy",
+  "Orthopedics",
+  "Rehabilitation Medicine",
+  "Sports Medicine",
+  "Neurology",
+  "General Practice",
+];
 
 const statusBadge: Record<AdminUserStatus, { label: string; tone: "green" | "yellow" | "slate" }> = {
   active: { label: "Active", tone: "green" },
@@ -73,12 +70,6 @@ function formatDateTime(value?: string | null) {
   }).format(new Date(value));
 }
 
-function formatBytes(bytes?: number | null) {
-  if (!bytes) return "";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function initials(name: string, fallback: string) {
   const words = name.split(/\s+/).filter(Boolean);
   if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase();
@@ -92,31 +83,15 @@ function roleIconClass(role: AdminUserRole) {
 function Topbar({ onLogout }: { onLogout: () => void }) {
   return (
     <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 lg:px-6">
-      <div className="flex items-center gap-3">
-        <Link aria-label="Open patients page" className="rounded-md p-2 text-slate-500 hover:bg-slate-100" to="/admin/patients">
-          <ChevronLeft className="h-5 w-5 rotate-180" />
-        </Link>
-        <Link className="inline-flex h-11 items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50" to="/admin/dashboard?section=settings">
-          CityCare Medical Center
-          <ChevronDown className="h-4 w-4 text-slate-500" />
-        </Link>
-      </div>
+      <h1 className="text-lg font-bold text-slate-900">Admin Dashboard</h1>
       <div className="flex items-center gap-4">
-        <Link aria-label="Notifications" className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100" to="/admin/dashboard?section=audit">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-600 text-[10px] font-bold text-white">3</span>
-        </Link>
-        <Link aria-label="Help" className="rounded-full p-2 text-slate-500 hover:bg-slate-100" to="/admin/dashboard?section=settings">
-          <HelpCircle className="h-5 w-5" />
-        </Link>
-        <Link className="flex items-center gap-3 rounded-lg px-2 py-1 text-left hover:bg-slate-50" to="/admin/dashboard?section=settings">
+        <span className="hidden items-center gap-3 sm:flex">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700">AD</span>
-          <span className="hidden sm:block">
+          <span>
             <span className="block text-sm font-bold text-slate-900">Admin</span>
             <span className="block text-xs text-slate-500">Administrator</span>
           </span>
-          <ChevronDown className="h-4 w-4 text-slate-500" />
-        </Link>
+        </span>
         <button aria-label="Logout" className="rounded-full p-2 text-slate-500 hover:bg-slate-100" onClick={onLogout} type="button">
           <LogOut className="h-5 w-5" />
         </button>
@@ -128,12 +103,10 @@ function Topbar({ onLogout }: { onLogout: () => void }) {
 function CountCard({
   icon,
   label,
-  trend,
   value,
 }: {
-  icon: ReactNode;
+  icon: React.ReactNode;
   label: string;
-  trend: string;
   value: number;
 }) {
   return (
@@ -144,10 +117,7 @@ function CountCard({
         </span>
         <div>
           <p className="text-sm font-medium text-slate-500">{label}</p>
-          <div className="mt-1 flex items-end gap-3">
-            <p className="text-3xl font-bold text-slate-950">{value}</p>
-            <p className="pb-1 text-xs font-semibold text-emerald-600">{trend}</p>
-          </div>
+          <p className="mt-1 text-3xl font-bold text-slate-950">{value}</p>
         </div>
       </div>
     </div>
@@ -172,10 +142,9 @@ function UserTable({
               <th className="px-4 py-4">Role</th>
               <th className="px-4 py-4">Name</th>
               <th className="px-4 py-4">ID</th>
-              <th className="px-4 py-4">Assigned Doctor/Patient</th>
+              <th className="px-4 py-4">Assigned Doctor</th>
               <th className="px-4 py-4">Last Session</th>
               <th className="px-4 py-4">Status</th>
-              <th className="px-4 py-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -200,18 +169,11 @@ function UserTable({
                     <p className="font-bold text-slate-900">{user.name}</p>
                     <p className="mt-0.5 text-xs text-slate-500">{user.subtitle ?? "--"}</p>
                   </td>
-                  <td className="px-4 py-4 font-medium text-slate-700">{user.id}</td>
+                  <td className="px-4 py-4 font-medium text-slate-700">{user.publicId ?? user.id}</td>
                   <td className="px-4 py-4 text-slate-600">{user.assignedLabel ?? "--"}</td>
                   <td className="px-4 py-4 text-slate-600">{formatDateTime(user.lastSessionAt)}</td>
                   <td className="px-4 py-4">
                     <Badge tone={status.tone}>{status.label}</Badge>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-center justify-end gap-3 text-slate-600">
-                      <button aria-label={`View ${user.name}`} className="rounded-full p-1 hover:bg-slate-100" onClick={(event) => { event.stopPropagation(); onSelect(user); }} type="button">
-                        <Eye className="h-4 w-4" />
-                      </button>
-                    </div>
                   </td>
                 </tr>
               );
@@ -223,335 +185,105 @@ function UserTable({
   );
 }
 
-function JsonPreview({ payload }: { payload: Record<string, unknown> }) {
+function ProfileField({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <pre className="max-h-64 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-700">
-      {JSON.stringify(payload, null, 2)}
-    </pre>
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <dt className="text-xs font-medium text-slate-500">{label}</dt>
+      <dd className="mt-0.5 text-sm font-semibold text-slate-900">{value || "--"}</dd>
+    </div>
   );
 }
 
-function sumRecord(values?: Record<string, number>) {
-  return Object.values(values ?? {}).reduce((total, value) => total + value, 0);
-}
-
-function SectionPanel({
-  detail,
-  isLoading,
-  onCreate,
-  onExportPayload,
-  onRefresh,
-  overview,
-  section,
-}: {
-  detail?: Awaited<ReturnType<typeof getAdminUserDetail>>;
-  isLoading: boolean;
-  onCreate: (mode: AddUserMode) => void;
-  onExportPayload: () => void;
-  onRefresh: () => void;
-  overview?: Awaited<ReturnType<typeof getAdminOverview>>;
-  section: AdminSection;
-}) {
-  if (section === "users") return null;
-
-  if (isLoading) {
-    return (
-      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <LoadingSpinner label={`Loading ${adminSectionLabels[section]}`} />
-      </div>
-    );
-  }
-
-  if (section === "videos") {
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-testid="admin-section-videos">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-950">Movement Videos</h1>
-            <p className="mt-1 text-sm text-slate-500">Latest videos for the selected patient.</p>
-          </div>
-          <Button icon={<RefreshCw className="h-4 w-4" />} onClick={onRefresh} size="sm" variant="outline">Refresh</Button>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {(detail?.videos ?? []).length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500 md:col-span-2">Select a patient with submitted videos to preview playback links.</div>
-          ) : (
-            detail!.videos.map((video) => {
-              const risk = riskBadge[video.riskLevel];
-              return (
-                <div className="rounded-lg border border-slate-200 p-3" key={`${video.sessionId}-${video.taskId}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-bold text-slate-900">{video.title}</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatDateTime(video.createdAt)}</p>
-                    </div>
-                    <Badge tone={risk.tone}>{risk.label}</Badge>
-                  </div>
-                  {video.videoUrl ? (
-                    <a className="mt-3 inline-flex items-center gap-2 text-sm font-bold text-cyan-700" href={video.videoUrl}>
-                      <Download className="h-4 w-4" />
-                      Open video
-                    </a>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-500">No playback link available.</p>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
-    );
-  }
-
-  if (section === "feedback") {
-    const feedback = detail?.latestFeedback;
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-testid="admin-section-feedback">
-        <h1 className="text-xl font-bold text-slate-950">Doctor Feedback</h1>
-        {feedback ? (
-          <div className="mt-4 rounded-lg border border-slate-200 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-bold text-slate-900">{feedback.doctorName}</p>
-                <p className="mt-1 text-xs text-slate-500">{formatDateTime(feedback.createdAt)}</p>
-              </div>
-              <Badge tone={riskBadge[feedback.riskLevel].tone}>{riskBadge[feedback.riskLevel].label}</Badge>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-slate-700">{feedback.clinicalSummary || feedback.patientSummary}</p>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">No feedback exists for the selected user yet.</div>
-        )}
-      </section>
-    );
-  }
-
-  if (section === "payload") {
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm" data-testid="admin-section-payload">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-950">MediaPipe Payload</h1>
-            <p className="mt-1 text-sm text-slate-500">Latest available normalized or raw payload for the selected patient.</p>
-          </div>
-          <Button disabled={!detail?.mediaPipePayload?.analysisResultId} onClick={onExportPayload} size="sm" variant="outline">Export JSON</Button>
-        </div>
-        <div className="mt-4">
-          {detail?.mediaPipePayload ? <JsonPreview payload={detail.mediaPipePayload.payload} /> : <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">No payload available for this user.</div>}
-        </div>
-      </section>
-    );
-  }
-
-  if (section === "analytics") {
-    return (
-      <section className="grid gap-4 md:grid-cols-3">
-        <CountCard icon={<Users className="h-8 w-8" />} label="Observed Users" trend="from backend" value={overview?.userCounts.total ?? 0} />
-        <CountCard icon={<Video className="h-8 w-8" />} label="Uploads" trend={`${formatBytes(overview?.uploadStats.totalSizeBytes)} total`} value={overview?.uploadStats.totalUploads ?? 0} />
-        <CountCard icon={<FileText className="h-8 w-8" />} label="Feedback" trend={`${sumRecord(overview?.analysisJobCounts)} jobs`} value={overview?.feedbackCount ?? 0} />
-      </section>
-    );
-  }
-
-  if (section === "audit") {
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-slate-950">Audit Logs</h1>
-          <Button icon={<RefreshCw className="h-4 w-4" />} onClick={onRefresh} size="sm" variant="outline">Refresh</Button>
-        </div>
-        <div className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
-          {(overview?.recentAuditEvents ?? []).length === 0 ? (
-            <div className="p-4 text-sm text-slate-500">No audit events yet.</div>
-          ) : (
-            overview!.recentAuditEvents.map((event) => (
-              <div className="grid gap-2 p-4 text-sm md:grid-cols-[1fr_120px_160px]" key={event.eventId || `${event.timestamp}-${event.action}`}>
-                <span className="font-semibold text-slate-900">{event.action}</span>
-                <Badge tone={event.outcome === "success" ? "green" : "red"}>{event.outcome}</Badge>
-                <span className="text-slate-500">{formatDateTime(event.timestamp)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h1 className="text-xl font-bold text-slate-950">System Settings</h1>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 p-4">
-          <p className="text-sm font-bold text-slate-900">Backend</p>
-          <p className="mt-1 text-sm text-slate-500">{overview?.serviceHealth.backend ?? "unknown"}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 p-4">
-          <p className="text-sm font-bold text-slate-900">MongoDB</p>
-          <p className="mt-1 text-sm text-slate-500">{overview?.serviceHealth.mongodb ?? "unknown"}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 p-4 md:col-span-2">
-          <p className="text-sm font-bold text-slate-900">MediaPipe Service</p>
-          <p className="mt-1 text-sm text-slate-500">{overview?.serviceHealth.mediapipeServiceUrl ?? "Not configured"}</p>
-        </div>
-      </div>
-      <div className="mt-5 flex flex-wrap gap-3">
-        <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => onCreate("patient")} variant="outline">Add Patient</Button>
-        <Button icon={<UserPlus className="h-4 w-4" />} onClick={() => onCreate("doctor")}>Add Doctor</Button>
-      </div>
-    </section>
-  );
-}
-
-function DetailPanel({
-  isLoading,
+function UserDetailModal({
+  deleteErrorMessage,
+  deleting,
+  doctors,
   onClose,
-  onExportPayload,
-  onOpenSection,
-  onRefresh,
-  selected,
+  onDelete,
+  onEdit,
+  user,
 }: {
-  isLoading: boolean;
+  deleteErrorMessage?: string;
+  deleting: boolean;
+  doctors: AdminUserSummary[];
   onClose: () => void;
-  onExportPayload: () => void;
-  onOpenSection: (section: AdminSection) => void;
-  onRefresh: () => void;
-  selected?: Awaited<ReturnType<typeof getAdminUserDetail>>;
+  onDelete: () => void;
+  onEdit: () => void;
+  user: AdminUserSummary;
 }) {
-  if (isLoading) {
-    return (
-      <aside className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <LoadingSpinner label="Loading selected user" />
-      </aside>
-    );
-  }
-
-  if (!selected) {
-    return (
-      <aside className="rounded-lg border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
-        Select a user to inspect movement videos, feedback, and MediaPipe payload.
-      </aside>
-    );
-  }
-
-  const selectedInitials = initials(selected.user.name, selected.user.id);
-  const feedback = selected.latestFeedback;
-  const mediaPipe = selected.mediaPipePayload;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const selectedInitials = initials(user.name, user.id);
+  const assignedDoctorName = user.assignedLabel
+    ? doctors.find((doctor) => doctor.id === user.assignedLabel)?.name ?? user.assignedLabel
+    : null;
 
   return (
-    <aside className="space-y-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm xl:max-h-[calc(100vh-6.5rem)] xl:overflow-y-auto">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-xl font-bold text-blue-700">
-            {selectedInitials}
-          </span>
-          <div>
-            <h2 className="text-lg font-bold text-slate-950">{selected.user.name}</h2>
-            <p className="text-sm text-slate-500">
-              {selected.user.role === "patient" ? "Patient" : "Doctor"} <span className="px-1">.</span> {selected.user.id}
-            </p>
-            <p className="mt-1 text-sm text-slate-500">{selected.user.subtitle ?? "No profile details"}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-xl font-bold text-blue-700">
+              {selectedInitials}
+            </span>
+            <div>
+              <h2 className="text-lg font-bold text-slate-950">{user.name}</h2>
+              <p className="text-sm text-slate-500">
+                {user.role === "patient" ? "Patient" : "Doctor"} <span className="px-1">.</span> {user.publicId ?? user.id}
+              </p>
+              <Badge className="mt-2" tone={statusBadge[user.status].tone}>{statusBadge[user.status].label}</Badge>
+            </div>
           </div>
+          <button aria-label="Close user details" className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100" onClick={onClose} type="button">
+            <X className="h-5 w-5" />
+          </button>
         </div>
-        <button aria-label="Close inspector" className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100" onClick={onClose} type="button">
-          <X className="h-5 w-5" />
-        </button>
-      </div>
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-bold text-slate-950">Movement Videos ({selected.videos.length})</h3>
-          <button className="text-sm font-bold text-cyan-700" onClick={() => onOpenSection("videos")} type="button">View All</button>
-        </div>
-        <div className="space-y-2">
-          {selected.videos.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">No movement videos yet.</div>
+        <dl className="mt-5 grid grid-cols-2 gap-3">
+          {user.role === "patient" ? (
+            <>
+              <ProfileField label="Age" value={user.age} />
+              <ProfileField label="Gender" value={user.gender} />
+              <ProfileField label="Assigned Doctor" value={assignedDoctorName} />
+            </>
           ) : (
-            selected.videos.slice(0, 3).map((video) => {
-              const risk = riskBadge[video.riskLevel];
-              return (
-                <div className="flex gap-3 rounded-lg border border-slate-200 p-3" key={`${video.sessionId}-${video.taskId}`}>
-                  <div className="relative flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-900 text-cyan-100">
-                    {video.videoUrl ? (
-                      <video
-                        className="h-full w-full object-cover"
-                        muted
-                        onError={onRefresh}
-                        preload="metadata"
-                        src={video.videoUrl}
-                      />
-                    ) : (
-                      <Video className="h-6 w-6" />
-                    )}
-                    <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">00:15</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-slate-900">{video.title}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {formatDateTime(video.createdAt)} {formatBytes(video.sizeBytes) ? ` . ${formatBytes(video.sizeBytes)}` : ""}
-                    </p>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <Badge tone={risk.tone}>{risk.label}</Badge>
-                      {video.videoUrl ? (
-                        <a aria-label={`Download ${video.title}`} className="text-slate-500 hover:text-cyan-700" href={video.videoUrl}>
-                          <Download className="h-4 w-4" />
-                        </a>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+            <ProfileField label="Specialty" value={user.specialty} />
+          )}
+          <ProfileField label="Phone" value={user.phone} />
+          <ProfileField label="Email" value={user.email} />
+          <ProfileField label="Last Session" value={formatDateTime(user.lastSessionAt)} />
+        </dl>
+
+        {deleteErrorMessage ? (
+          <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{deleteErrorMessage}</p>
+        ) : null}
+
+        <div className="mt-6 border-t border-slate-100 pt-4">
+          {confirmingDelete ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold text-rose-700">Delete {user.name}? This cannot be undone.</p>
+              <div className="flex justify-end gap-2">
+                <Button onClick={() => setConfirmingDelete(false)} type="button" variant="outline">Cancel</Button>
+                <Button className="bg-rose-600 hover:bg-rose-700" disabled={deleting} icon={<Trash2 className="h-4 w-4" />} onClick={onDelete} type="button">
+                  {deleting ? "Deleting..." : "Confirm Delete"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <Button className="border-rose-200 text-rose-700 hover:bg-rose-50" icon={<Trash2 className="h-4 w-4" />} onClick={() => setConfirmingDelete(true)} type="button" variant="outline">
+                Delete User
+              </Button>
+              <div className="flex gap-2">
+                <Button icon={<Pencil className="h-4 w-4" />} onClick={onEdit} type="button" variant="outline">
+                  Edit
+                </Button>
+                <Button onClick={onClose} type="button">Close</Button>
+              </div>
+            </div>
           )}
         </div>
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-bold text-slate-950">Latest Doctor Feedback</h3>
-          <button className="text-sm font-bold text-cyan-700" onClick={() => onOpenSection("feedback")} type="button">View All</button>
-        </div>
-        {feedback ? (
-          <div className="rounded-lg border border-slate-200 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
-                  {initials(feedback.doctorName, "DR")}
-                </span>
-                <div>
-                  <p className="font-bold text-slate-900">{feedback.doctorName}</p>
-                  <p className="text-xs text-slate-500">{formatDateTime(feedback.createdAt)}</p>
-                </div>
-              </div>
-              <Badge tone={riskBadge[feedback.riskLevel].tone}>{riskBadge[feedback.riskLevel].label}</Badge>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-slate-700">{feedback.clinicalSummary || feedback.patientSummary}</p>
-            {feedback.tags.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {feedback.tags.map((tag) => (
-                  <span className="rounded-md bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700" key={tag}>{tag}</span>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">No doctor feedback yet.</div>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-slate-950">MediaPipe Payload</h3>
-            <p className="text-xs text-slate-500">Latest Session</p>
-          </div>
-          <Button disabled={!mediaPipe?.analysisResultId} onClick={onExportPayload} size="sm" variant="outline">
-            Export JSON
-          </Button>
-        </div>
-        {mediaPipe ? <JsonPreview payload={mediaPipe.payload} /> : <div className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">No MediaPipe payload yet.</div>}
-      </section>
-    </aside>
+      </div>
+    </div>
   );
 }
 
@@ -573,8 +305,6 @@ function AddUserModal({
   pending: boolean;
 }) {
   const [name, setName] = useState("");
-  const [userId, setUserId] = useState("");
-  const [password, setPassword] = useState("");
   const [specialty, setSpecialty] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
@@ -593,8 +323,6 @@ function AddUserModal({
       phone: phone || undefined,
       role: mode,
       specialty: mode === "doctor" ? specialty || undefined : undefined,
-      temporaryPassword: password.trim() || undefined,
-      userId: userId || undefined,
     });
   }
 
@@ -604,7 +332,9 @@ function AddUserModal({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-950">Add User</h2>
-            <p className="mt-1 text-sm text-slate-500">Create a patient or doctor profile for admin tracking.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              The login ID and password are generated automatically and shown once the user is created.
+            </p>
           </div>
           <button aria-label="Close add user modal" className="rounded-full p-1 text-slate-500 hover:bg-slate-100" onClick={onClose} type="button">
             <X className="h-5 w-5" />
@@ -625,26 +355,19 @@ function AddUserModal({
         </div>
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <Input label="Name" name="name" onChange={(event) => setName(event.target.value)} required value={name} />
-          <Input label="User ID (login)" name="userId" onChange={(event) => setUserId(event.target.value)} placeholder={mode === "patient" ? "P-1008" : "D-2004"} value={userId} />
-          <div className="space-y-1.5 sm:col-span-2">
-            <Input
-              autoComplete="new-password"
-              label="Password"
-              name="temporaryPassword"
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Leave blank to auto-generate"
-              type="text"
-              value={password}
-            />
-            <span className="block text-xs text-slate-500">
-              At least 12 characters, mixing 3 of: lowercase, uppercase, digit, symbol. The user must change it at first login.
-            </span>
-          </div>
+          <Input className="sm:col-span-2" label="Name" name="name" onChange={(event) => setName(event.target.value)} required value={name} />
           {mode === "patient" ? (
             <>
               <Input label="Age" name="age" onChange={(event) => setAge(event.target.value)} type="number" value={age} />
-              <Input label="Gender" name="gender" onChange={(event) => setGender(event.target.value)} placeholder="Female" value={gender} />
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700">Gender</span>
+                <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setGender(event.target.value)} value={gender}>
+                  <option value="">Select gender</option>
+                  {genderOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
               <label className="block space-y-1.5 sm:col-span-2">
                 <span className="text-sm font-medium text-slate-700">Assigned Doctor</span>
                 <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setAssignedDoctorId(event.target.value)} value={assignedDoctorId}>
@@ -656,10 +379,18 @@ function AddUserModal({
               </label>
             </>
           ) : (
-            <Input className="sm:col-span-2" label="Specialty" name="specialty" onChange={(event) => setSpecialty(event.target.value)} placeholder="Physiotherapy" value={specialty} />
+            <label className="block space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium text-slate-700">Specialty</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setSpecialty(event.target.value)} value={specialty}>
+                <option value="">Select specialty</option>
+                {specialtyOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
           )}
-          <Input label="Email" name="email" onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
           <Input label="Phone" name="phone" onChange={(event) => setPhone(event.target.value)} value={phone} />
+          <Input label="Email" name="email" onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
         </div>
 
         {errorMessage ? (
@@ -670,6 +401,111 @@ function AddUserModal({
           <Button onClick={onClose} type="button" variant="outline">Cancel</Button>
           <Button disabled={pending} icon={<Plus className="h-4 w-4" />} type="submit">
             {pending ? "Creating..." : `Add ${mode === "patient" ? "Patient" : "Doctor"}`}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditUserModal({
+  doctors,
+  errorMessage,
+  onClose,
+  onSubmit,
+  pending,
+  user,
+}: {
+  doctors: AdminUserSummary[];
+  errorMessage?: string;
+  onClose: () => void;
+  onSubmit: (payload: AdminUpdateUserPayload) => void;
+  pending: boolean;
+  user: AdminUserSummary;
+}) {
+  const [name, setName] = useState(user.name);
+  const [specialty, setSpecialty] = useState(user.specialty ?? "");
+  const [age, setAge] = useState(user.age != null ? String(user.age) : "");
+  const [gender, setGender] = useState(user.gender ?? "");
+  const [email, setEmail] = useState(user.email ?? "");
+  const [phone, setPhone] = useState(user.phone ?? "");
+  const [assignedDoctorId, setAssignedDoctorId] = useState(user.role === "patient" ? user.assignedLabel ?? "" : "");
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit({
+      age: age ? Number(age) : null,
+      assignedDoctorId: user.role === "patient" ? assignedDoctorId || undefined : undefined,
+      email: email || undefined,
+      gender: user.role === "patient" ? gender || undefined : undefined,
+      name,
+      phone: phone || undefined,
+      specialty: user.role === "doctor" ? specialty || undefined : undefined,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <form className="w-full max-w-xl rounded-lg bg-white p-6 shadow-2xl" onSubmit={handleSubmit}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">Edit {user.role === "patient" ? "Patient" : "Doctor"}</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Login ID ({user.publicId ?? user.id}) and password cannot be changed here.
+            </p>
+          </div>
+          <button aria-label="Close edit user modal" className="rounded-full p-1 text-slate-500 hover:bg-slate-100" onClick={onClose} type="button">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Input className="sm:col-span-2" label="Name" name="name" onChange={(event) => setName(event.target.value)} required value={name} />
+          {user.role === "patient" ? (
+            <>
+              <Input label="Age" name="age" onChange={(event) => setAge(event.target.value)} type="number" value={age} />
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700">Gender</span>
+                <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setGender(event.target.value)} value={gender}>
+                  <option value="">Select gender</option>
+                  {genderOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1.5 sm:col-span-2">
+                <span className="text-sm font-medium text-slate-700">Assigned Doctor</span>
+                <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setAssignedDoctorId(event.target.value)} value={assignedDoctorId}>
+                  <option value="">Unassigned</option>
+                  {doctors.map((doctor) => (
+                    <option key={doctor.id} value={doctor.id}>{doctor.name}</option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            <label className="block space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium text-slate-700">Specialty</span>
+              <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" onChange={(event) => setSpecialty(event.target.value)} value={specialty}>
+                <option value="">Select specialty</option>
+                {specialtyOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Input label="Phone" name="phone" onChange={(event) => setPhone(event.target.value)} value={phone} />
+          <Input label="Email" name="email" onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
+        </div>
+
+        {errorMessage ? (
+          <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{errorMessage}</p>
+        ) : null}
+
+        <div className="mt-6 flex justify-end gap-3">
+          <Button onClick={onClose} type="button" variant="outline">Cancel</Button>
+          <Button disabled={pending} icon={<Pencil className="h-4 w-4" />} type="submit">
+            {pending ? "Saving..." : "Save Changes"}
           </Button>
         </div>
       </form>
@@ -715,11 +551,12 @@ export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const activeSection = getAdminSection(searchParams.get("section"));
   const [activeTab, setActiveTab] = useState<UserTab>("patient");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [addMode, setAddMode] = useState<AddUserMode>("patient");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [credentialNotice, setCredentialNotice] = useState<{ loginId: string; name: string; password: string } | null>(null);
@@ -729,39 +566,20 @@ export function AdminDashboardPage() {
     queryKey: ["admin", "users"],
   });
 
-  const overviewQuery = useQuery({
-    queryFn: getAdminOverview,
-    queryKey: ["admin", "overview"],
-  });
-
   const users = usersQuery.data?.users ?? [];
-  const selectedUser = users.find((user) => user.id === selectedUserId) ?? users[0];
-  const detailQuery = useQuery({
-    enabled: Boolean(selectedUser?.id),
-    queryFn: () => getAdminUserDetail(selectedUser!.id),
-    queryKey: ["admin", "users", selectedUser?.id, "detail"],
-  });
+  const selectedUser = users.find((user) => user.id === selectedUserId);
 
   const createUserMutation = useMutation({
     mutationFn: createAdminUser,
-    onSuccess: (created, variables) => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
-      setSelectedUserId(created.id);
       setIsAddOpen(false);
-      // Surface the initial login credentials once. A backend-generated password is
-      // returned on `created`; an admin-supplied one is echoed back to us here only.
       setCredentialNotice({
-        loginId: created.publicId ?? variables.userId ?? created.id,
+        loginId: created.publicId ?? created.id,
         name: created.name,
-        password: variables.temporaryPassword ?? created.temporaryPassword ?? "",
+        password: created.temporaryPassword ?? "",
       });
-      setSearchParams((current) => {
-        const next = new URLSearchParams(current);
-        next.set("section", "users");
-        next.set("user", created.id);
-        next.delete("create");
-        return next;
-      });
+      updateDashboardParams({ create: null });
     },
   });
 
@@ -772,21 +590,51 @@ export function AdminDashboardPage() {
         ? "Could not create the user. Please try again."
         : undefined;
 
+  const deleteUserMutation = useMutation({
+    mutationFn: deleteAdminUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      closeDetail();
+    },
+  });
+
+  const deleteUserErrorMessage =
+    deleteUserMutation.error instanceof BackendRequestError
+      ? deleteUserMutation.error.message
+      : deleteUserMutation.error
+        ? "Could not delete the user. Please try again."
+        : undefined;
+
+  const updateUserMutation = useMutation({
+    mutationFn: (payload: AdminUpdateUserPayload) => updateAdminUser(selectedUserId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+      setIsEditOpen(false);
+    },
+  });
+
+  const updateUserErrorMessage =
+    updateUserMutation.error instanceof BackendRequestError
+      ? updateUserMutation.error.message
+      : updateUserMutation.error
+        ? "Could not save the changes. Please try again."
+        : undefined;
+
   useEffect(() => {
-    const error = usersQuery.error ?? detailQuery.error ?? overviewQuery.error;
-    if (!isAuthExpiredError(error)) return;
+    if (!isAuthExpiredError(usersQuery.error)) return;
     clearAdminBackendAuthToken();
     queryClient.removeQueries({ queryKey: ["admin"] });
     navigate("/admin/login", {
       replace: true,
       state: { message: "Your admin session expired. Please sign in again." },
     });
-  }, [detailQuery.error, navigate, overviewQuery.error, queryClient, usersQuery.error]);
+  }, [navigate, queryClient, usersQuery.error]);
 
   useEffect(() => {
     const requestedUserId = searchParams.get("user");
     if (requestedUserId && users.some((user) => user.id === requestedUserId)) {
       setSelectedUserId(requestedUserId);
+      setIsDetailOpen(true);
     }
   }, [searchParams, users]);
 
@@ -797,12 +645,6 @@ export function AdminDashboardPage() {
       setIsAddOpen(true);
     }
   }, [searchParams]);
-
-  useEffect(() => {
-    if (!selectedUserId && users.length > 0) {
-      setSelectedUserId(users[0].id);
-    }
-  }, [selectedUserId, users]);
 
   useEffect(() => {
     setPage(1);
@@ -816,7 +658,7 @@ export function AdminDashboardPage() {
         !normalized ||
         user.name.toLowerCase().includes(normalized) ||
         user.id.toLowerCase().includes(normalized) ||
-        (user.assignedLabel ?? "").toLowerCase().includes(normalized);
+        (user.publicId ?? "").toLowerCase().includes(normalized);
       return matchesTab && matchesQuery;
     });
   }, [activeTab, query, users]);
@@ -825,10 +667,9 @@ export function AdminDashboardPage() {
   const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
   const doctors = users.filter((user) => user.role === "doctor");
 
-  function updateDashboardParams(updates: { create?: AddUserMode | null; section?: AdminSection; user?: string | null }) {
+  function updateDashboardParams(updates: { create?: AddUserMode | null; user?: string | null }) {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
-      if (updates.section) next.set("section", updates.section);
       if (updates.user === null) next.delete("user");
       if (updates.user) next.set("user", updates.user);
       if (updates.create === null) next.delete("create");
@@ -841,7 +682,7 @@ export function AdminDashboardPage() {
     setAddMode(mode);
     setIsAddOpen(true);
     createUserMutation.reset();
-    updateDashboardParams({ create: mode, section: "users" });
+    updateDashboardParams({ create: mode });
   }
 
   function closeCreateUser() {
@@ -851,7 +692,23 @@ export function AdminDashboardPage() {
 
   function handleSelectUser(user: AdminUserSummary) {
     setSelectedUserId(user.id);
+    setIsDetailOpen(true);
+    deleteUserMutation.reset();
     updateDashboardParams({ user: user.id });
+  }
+
+  function closeDetail() {
+    setIsDetailOpen(false);
+    updateDashboardParams({ user: null });
+  }
+
+  function openEditUser() {
+    updateUserMutation.reset();
+    setIsEditOpen(true);
+  }
+
+  function closeEditUser() {
+    setIsEditOpen(false);
   }
 
   function handleLogout() {
@@ -860,31 +717,18 @@ export function AdminDashboardPage() {
     navigate("/admin/login");
   }
 
-  async function handleExportPayload() {
-    const payload = detailQuery.data?.mediaPipePayload;
-    if (!payload?.analysisResultId) return;
-    const exported = await exportAdminMediaPipePayload(payload.analysisResultId);
-    const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${payload.analysisResultId}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950" data-testid="admin-dashboard">
       <div className="flex min-h-screen">
-        <AdminSidebar systemStatus={overviewQuery.data?.serviceHealth.backend === "ok" ? "Backend and MongoDB reachable" : "Backend status unknown"} />
+        <AdminSidebar />
         <section className="min-w-0 flex-1">
           <Topbar onLogout={handleLogout} />
 
-          <div className="grid gap-5 p-4 lg:p-6 xl:grid-cols-[minmax(0,1fr)_560px]">
+          <div className="p-4 lg:p-6">
             <div className="min-w-0 space-y-5">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_160px_160px]">
-                <CountCard icon={<Users className="h-8 w-8" />} label="Patient Count" trend="+12 this week" value={usersQuery.data?.patientCount ?? 0} />
-                <CountCard icon={<Stethoscope className="h-8 w-8" />} label="Doctor Count" trend="+2 this week" value={usersQuery.data?.doctorCount ?? 0} />
+                <CountCard icon={<Users className="h-8 w-8" />} label="Patient Count" value={usersQuery.data?.patientCount ?? 0} />
+                <CountCard icon={<Stethoscope className="h-8 w-8" />} label="Doctor Count" value={usersQuery.data?.doctorCount ?? 0} />
                 <Button className="h-full min-h-16 bg-white text-cyan-700 hover:bg-cyan-50" icon={<UserPlus className="h-5 w-5" />} onClick={() => openCreateUser("patient")} variant="outline">
                   Add Patient
                 </Button>
@@ -892,20 +736,6 @@ export function AdminDashboardPage() {
                   Add Doctor
                 </Button>
               </div>
-
-              <SectionPanel
-                detail={detailQuery.data}
-                isLoading={overviewQuery.isLoading || (detailQuery.isFetching && activeSection !== "analytics" && activeSection !== "audit" && activeSection !== "settings")}
-                onCreate={openCreateUser}
-                onExportPayload={handleExportPayload}
-                onRefresh={() => {
-                  usersQuery.refetch();
-                  overviewQuery.refetch();
-                  detailQuery.refetch();
-                }}
-                overview={overviewQuery.data}
-                section={activeSection}
-              />
 
               <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
                 <div className="grid rounded-lg border border-slate-200 bg-slate-50 p-1 sm:grid-cols-3 lg:w-[430px]">
@@ -935,9 +765,6 @@ export function AdminDashboardPage() {
                       value={query}
                     />
                   </div>
-                  <button aria-label="Clear user filters" className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50" onClick={() => { setQuery(""); setActiveTab("all"); }} type="button">
-                    <Filter className="h-5 w-5" />
-                  </button>
                   <button aria-label="Refresh users" className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50" onClick={() => usersQuery.refetch()} type="button">
                     <RefreshCw className={cn("h-5 w-5", usersQuery.isFetching && "animate-spin")} />
                   </button>
@@ -964,7 +791,7 @@ export function AdminDashboardPage() {
 
               {!usersQuery.isLoading && !usersQuery.isError ? (
                 <>
-                  <UserTable onSelect={handleSelectUser} selectedId={selectedUser?.id} users={pagedUsers} />
+                  <UserTable onSelect={handleSelectUser} selectedId={isDetailOpen ? selectedUser?.id : undefined} users={pagedUsers} />
                   <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600 shadow-sm md:flex-row md:items-center md:justify-between">
                     <p>
                       Showing {filteredUsers.length === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredUsers.length)} of {filteredUsers.length} users
@@ -984,21 +811,32 @@ export function AdminDashboardPage() {
                 </>
               ) : null}
             </div>
-
-            <DetailPanel
-              isLoading={detailQuery.isFetching}
-              onClose={() => {
-                setSelectedUserId("");
-                updateDashboardParams({ user: null });
-              }}
-              onExportPayload={handleExportPayload}
-              onOpenSection={(section) => updateDashboardParams({ section })}
-              onRefresh={() => detailQuery.refetch()}
-              selected={detailQuery.data}
-            />
           </div>
         </section>
       </div>
+
+      {isDetailOpen && selectedUser ? (
+        <UserDetailModal
+          deleteErrorMessage={deleteUserErrorMessage}
+          deleting={deleteUserMutation.isPending}
+          doctors={doctors}
+          onClose={closeDetail}
+          onDelete={() => deleteUserMutation.mutate(selectedUser.id)}
+          onEdit={openEditUser}
+          user={selectedUser}
+        />
+      ) : null}
+
+      {isEditOpen && selectedUser ? (
+        <EditUserModal
+          doctors={doctors}
+          errorMessage={updateUserErrorMessage}
+          onClose={closeEditUser}
+          onSubmit={(payload) => updateUserMutation.mutate(payload)}
+          pending={updateUserMutation.isPending}
+          user={selectedUser}
+        />
+      ) : null}
 
       {credentialNotice ? (
         <NewCredentialsModal notice={credentialNotice} onClose={() => setCredentialNotice(null)} />
